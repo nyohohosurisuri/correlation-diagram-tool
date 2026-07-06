@@ -491,12 +491,45 @@ body[data-tools-collapsed="true"] .tools-toggle {
 .endpoint-list {
   display: grid;
   gap: 5px;
-  max-height: 260px;
-  overflow: auto;
   padding: 7px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: #fff;
+}
+
+.endpoint-connected-list,
+.endpoint-candidate-list {
+  display: grid;
+  gap: 5px;
+}
+
+.endpoint-candidates {
+  display: grid;
+  gap: 5px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.endpoint-candidates summary {
+  min-height: 30px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 30px;
+  user-select: none;
+}
+
+.endpoint-candidate-list {
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.endpoint-empty {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .endpoint-option {
@@ -1458,7 +1491,18 @@ body[data-tools-collapsed="true"] .tools-toggle {
     display: block;
   }
 
-  .endpoint-list .endpoint-option + .endpoint-option {
+  .endpoint-connected-list,
+  .endpoint-candidate-list {
+    display: block;
+  }
+
+  .endpoint-connected-list .endpoint-option + .endpoint-option,
+  .endpoint-candidate-list .endpoint-option + .endpoint-option {
+    margin-top: 5px;
+  }
+
+  .endpoint-candidates {
+    display: block;
     margin-top: 5px;
   }
 

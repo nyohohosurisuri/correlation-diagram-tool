@@ -3046,29 +3046,52 @@
     const current = getLinkEndpointIds(link, side);
     const oppositeSide = side === "fromIds" ? "toIds" : "fromIds";
     const opposite = getLinkEndpointIds(link, oppositeSide);
-    getConnectionCandidates().forEach((candidate) => {
-      const checked = current.includes(candidate.id);
-      const lockedOnlyChoice = checked && current.length <= 1;
-      const lockedOppositeOnlyChoice = !checked && opposite.includes(candidate.id) && opposite.length <= 1;
-      const row = el("div", {
-        class: `endpoint-option${!checked && lockedOppositeOnlyChoice ? " is-disabled" : ""}`
+    const candidates = getConnectionCandidates();
+    const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+    const connected = current.map((id) => candidateById.get(id)).filter(Boolean);
+    const unconnected = candidates.filter((candidate) => !current.includes(candidate.id));
+    const connectedWrap = el("div", { class: "endpoint-connected-list" });
+    if (connected.length) {
+      connected.forEach((candidate) => {
+        connectedWrap.appendChild(endpointOptionRow(link, side, candidate, true, current, opposite));
       });
-      const label = el("label", { class: "endpoint-choice" });
-      const input = el("input", { type: "checkbox" });
-      input.checked = checked;
-      input.disabled = lockedOnlyChoice || lockedOppositeOnlyChoice;
-      input.addEventListener("change", () => {
-        updateLinkEndpoint(link, side, candidate.id, input.checked);
+    } else {
+      connectedWrap.appendChild(el("div", { class: "endpoint-empty" }, "接続中の項目はありません"));
+    }
+    wrap.appendChild(connectedWrap);
+    if (unconnected.length) {
+      const details = el("details", { class: "endpoint-candidates" });
+      details.appendChild(el("summary", {}, `候補を表示（${unconnected.length}件）`));
+      const candidateWrap = el("div", { class: "endpoint-candidate-list" });
+      unconnected.forEach((candidate) => {
+        candidateWrap.appendChild(endpointOptionRow(link, side, candidate, false, current, opposite));
       });
-      label.appendChild(input);
-      label.appendChild(el("span", {}, candidate.label));
-      row.appendChild(label);
-      if (checked) {
-        row.appendChild(endpointAnchorControls(link, side, candidate.id));
-      }
-      wrap.appendChild(row);
-    });
+      details.appendChild(candidateWrap);
+      wrap.appendChild(details);
+    }
     return wrap;
+  }
+
+  function endpointOptionRow(link, side, candidate, checked, current, opposite) {
+    const lockedOnlyChoice = checked && current.length <= 1;
+    const lockedOppositeOnlyChoice = !checked && opposite.includes(candidate.id) && opposite.length <= 1;
+    const row = el("div", {
+      class: `endpoint-option${!checked && lockedOppositeOnlyChoice ? " is-disabled" : ""}`
+    });
+    const label = el("label", { class: "endpoint-choice" });
+    const input = el("input", { type: "checkbox" });
+    input.checked = checked;
+    input.disabled = lockedOnlyChoice || lockedOppositeOnlyChoice;
+    input.addEventListener("change", () => {
+      updateLinkEndpoint(link, side, candidate.id, input.checked);
+    });
+    label.appendChild(input);
+    label.appendChild(el("span", {}, candidate.label));
+    row.appendChild(label);
+    if (checked) {
+      row.appendChild(endpointAnchorControls(link, side, candidate.id));
+    }
+    return row;
   }
 
   function endpointAnchorControls(link, side, endpointId) {
