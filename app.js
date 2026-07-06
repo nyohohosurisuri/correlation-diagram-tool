@@ -674,6 +674,7 @@
       const handle = renderGroupResizeHandle(group);
       if (handle) root.appendChild(handle);
     });
+    appendSelectedLinkAnchorHandles(root);
   }
 
   function appendLinkWithLiftedLabel(root, labelLayer, link) {
@@ -2195,6 +2196,59 @@
         "pointer-events": "none"
       }));
     }
+    g.appendChild(handle);
+  }
+
+  function appendSelectedLinkAnchorHandles(root) {
+    if (selected?.type !== "link") return;
+    const link = getLink(selected.id);
+    if (!link) return;
+    const fromEndpoints = getLinkEndpointEntries(link, "from");
+    const toEndpoints = getLinkEndpointEntries(link, "to");
+    if (!fromEndpoints.length || !toEndpoints.length) return;
+    const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
+    const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
+    const layer = createSvg("g", { "data-layer": "link-anchors" });
+    fromEndpoints.forEach((endpoint) => {
+      appendLinkAnchorHandle(layer, link, attachmentPoint(endpoint.item, endpoint.id, link, "from", toCenter), "from", endpoint.id);
+    });
+    toEndpoints.forEach((endpoint) => {
+      appendLinkAnchorHandle(layer, link, attachmentPoint(endpoint.item, endpoint.id, link, "to", fromCenter), "to", endpoint.id);
+    });
+    root.appendChild(layer);
+  }
+
+  function appendLinkAnchorHandle(g, link, point, side, endpointId) {
+    const handle = createSvg("g", {
+      "data-type": "link-anchor",
+      "data-id": link.id,
+      "data-side": side,
+      "data-endpoint-id": endpointId,
+      class: "link-anchor-handle"
+    });
+    handle.appendChild(createSvg("circle", {
+      cx: point.x,
+      cy: point.y,
+      r: 18,
+      fill: "transparent",
+      "pointer-events": "all"
+    }));
+    handle.appendChild(createSvg("circle", {
+      cx: point.x,
+      cy: point.y,
+      r: 7,
+      fill: "#ffffff",
+      stroke: link.color || "#202329",
+      "stroke-width": 2,
+      "pointer-events": "none"
+    }));
+    handle.appendChild(createSvg("path", {
+      d: `M ${point.x - 4.5} ${point.y} L ${point.x + 4.5} ${point.y} M ${point.x} ${point.y - 4.5} L ${point.x} ${point.y + 4.5}`,
+      stroke: link.color || "#202329",
+      "stroke-width": 1.8,
+      "stroke-linecap": "round",
+      "pointer-events": "none"
+    }));
     g.appendChild(handle);
   }
 
@@ -3933,6 +3987,10 @@
       return;
     }
 
+    if (target?.type === "link-anchor") {
+      if (startLinkAnchorDrag(event, target, point, screen)) return;
+    }
+
     if (target?.type === "link-terminal") {
       if (startLinkTerminalDrag(event, target, point, screen)) return;
     }
@@ -4086,6 +4144,14 @@
       if (drag.axis === "vertical") next.y += dy;
       setLinkTerminalOffset(link, drag.side, drag.endpointId, next);
     }
+    if (drag.type === "link-anchor") {
+      const link = getLink(drag.id);
+      const endpoint = getConnectionEndpoint(drag.endpointId);
+      if (!link || !endpoint) return;
+      if (!drag.moved) return;
+      const ratio = edgeAnchorRatioFromPoint(endpoint.item, point);
+      setLinkAnchorValue(link, drag.side, drag.endpointId, makeCustomAnchor(ratio.x, ratio.y));
+    }
     requestDiagramRender();
   }
 
@@ -4111,8 +4177,8 @@
       render();
       return;
     }
-    if ((currentDrag.type === "node" || currentDrag.type === "group" || currentDrag.type === "group-resize" || currentDrag.type === "text" || currentDrag.type === "shape" || currentDrag.type === "image" || currentDrag.type === "legend" || currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal") && !currentDrag.moved) {
-      handleTapSelection(currentDrag.type === "group-resize" ? "group" : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" ? "link" : currentDrag.type, currentDrag.id, event);
+    if ((currentDrag.type === "node" || currentDrag.type === "group" || currentDrag.type === "group-resize" || currentDrag.type === "text" || currentDrag.type === "shape" || currentDrag.type === "image" || currentDrag.type === "legend" || currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor") && !currentDrag.moved) {
+      handleTapSelection(currentDrag.type === "group-resize" ? "group" : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor" ? "link" : currentDrag.type, currentDrag.id, event);
       drag = null;
       render();
       return;
@@ -4237,6 +4303,12 @@
         });
       }
     }
+    if (drag?.type === "link-anchor") {
+      const link = getLink(drag.id);
+      if (link) {
+        setLinkAnchorValue(link, drag.side, drag.endpointId, drag.original.anchor);
+      }
+    }
     drag = null;
     const points = [...workspacePointers.values()];
     if (points.length < 2) return;
@@ -4298,6 +4370,34 @@
       original: {
         routeOffsetX: normalizedLinkRouteOffsetX(link),
         routeOffsetY: normalizedLinkRouteOffsetY(link)
+      },
+      moved: false
+    };
+    render();
+    return true;
+  }
+
+  function startLinkAnchorDrag(event, target, point, screen) {
+    const link = getLink(target.id);
+    const side = target.side === "from" ? "from" : target.side === "to" ? "to" : "";
+    const endpointId = target.endpointId || "";
+    const endpoint = getConnectionEndpoint(endpointId);
+    if (!link || !side || !endpoint) return false;
+    const originalAnchor = getLinkAnchor(link, side, endpointId);
+    selected = { type: "link", id: link.id };
+    mode = "select";
+    pendingConnection = null;
+    inspectorOpen = false;
+    drag = {
+      type: "link-anchor",
+      id: link.id,
+      pointerId: event.pointerId,
+      start: point,
+      startScreen: screen,
+      side,
+      endpointId,
+      original: {
+        anchor: originalAnchor
       },
       moved: false
     };
@@ -5963,8 +6063,14 @@
 
   function updateLinkAnchor(link, side, endpointId, value) {
     resetWorkspaceGesture();
+    setLinkAnchorValue(link, side, endpointId, value);
+    scheduleChange();
+    renderInspector();
+  }
+
+  function setLinkAnchorValue(link, side, endpointId, value) {
     const mapKey = anchorMapKey(side);
-    const ids = getLinkEndpointIds(link, side);
+    const ids = getLinkEndpointIds(link, side === "from" ? "fromIds" : side === "to" ? "toIds" : side);
     const anchors = normalizeAnchorMap(link[mapKey], ids);
     if (isCustomAnchor(value)) {
       anchors[endpointId] = value;
@@ -5977,8 +6083,6 @@
       delete anchors[endpointId];
     }
     link[mapKey] = anchors;
-    scheduleChange();
-    renderInspector();
   }
 
   function syncLinkEndpoints(link) {
@@ -6087,6 +6191,31 @@
 
   function makeCustomAnchor(x, y) {
     return `${CUSTOM_ANCHOR_PREFIX}${clamp(Number(x) || 0, 0, 1).toFixed(4)},${clamp(Number(y) || 0, 0, 1).toFixed(4)}`;
+  }
+
+  function edgeAnchorRatioFromPoint(item, point) {
+    const width = Math.max(1, Number(item.w) || 1);
+    const height = Math.max(1, Number(item.h) || 1);
+    let x = clamp((point.x - item.x) / width, 0, 1);
+    let y = clamp((point.y - item.y) / height, 0, 1);
+    const leftDistance = Math.abs(point.x - item.x);
+    const rightDistance = Math.abs(point.x - (item.x + width));
+    const topDistance = Math.abs(point.y - item.y);
+    const bottomDistance = Math.abs(point.y - (item.y + height));
+    const outsideX = point.x < item.x || point.x > item.x + width;
+    const outsideY = point.y < item.y || point.y > item.y + height;
+    if (outsideX || outsideY) {
+      if (outsideX && leftDistance <= rightDistance) x = 0;
+      if (outsideX && rightDistance < leftDistance) x = 1;
+      if (outsideY && topDistance <= bottomDistance) y = 0;
+      if (outsideY && bottomDistance < topDistance) y = 1;
+      return { x, y };
+    }
+    const nearest = Math.min(leftDistance, rightDistance, topDistance, bottomDistance);
+    if (nearest === topDistance) return { x, y: 0 };
+    if (nearest === bottomDistance) return { x, y: 1 };
+    if (nearest === leftDistance) return { x: 0, y };
+    return { x: 1, y };
   }
 
   function anchorRatioFromValue(value) {
