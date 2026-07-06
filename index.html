@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#f7faf7">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="相関図作成">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>相関図作成ツール</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="pwa-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="pwa-icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">◎</div>
+        <div>
+          <h1>相関図作成ツール</h1>
+          <p id="statusText">未選択</p>
+        </div>
+      </div>
+      <div class="top-actions" aria-label="ファイル操作">
+        <button id="undoBtn" class="icon-button" type="button" title="元に戻す">↶</button>
+        <button id="redoBtn" class="icon-button" type="button" title="やり直す">↷</button>
+        <button id="newBtn" type="button">新規</button>
+        <button id="saveBtn" type="button">保存</button>
+        <button id="loadBtn" type="button">読込</button>
+        <button id="pngBtn" type="button">PNG</button>
+        <input id="fileInput" type="file" accept="application/json,.json" hidden>
+        <input id="imageInsertInput" type="file" accept="image/*" hidden>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="tool-panel" data-mobile-panel="none" aria-label="作成ツール">
+        <div class="mobile-toolbar" aria-label="ツール切替">
+          <button type="button" data-mobile-tool="create" aria-pressed="false">作成</button>
+          <button type="button" data-mobile-tool="view" aria-pressed="false">表示</button>
+          <button type="button" data-mobile-tool="align" aria-pressed="false">整列</button>
+          <button type="button" data-mobile-tool="select" aria-pressed="false">選択</button>
+        </div>
+
+        <div class="tool-section tool-section--create">
+          <div class="section-title">作成</div>
+          <div class="tool-grid">
+            <button id="addNodeBtn" class="primary-action" type="button">＋ 人物</button>
+            <button id="connectBtn" type="button" aria-pressed="false">↔ 関係</button>
+            <button id="addGroupBtn" type="button">□ グループ</button>
+            <button id="addTextBtn" type="button">T テキスト</button>
+            <button id="addShapeBtn" type="button">☆ 図形</button>
+            <button id="addLegendBtn" type="button">◎ 凡例</button>
+            <button id="addImageBtn" type="button">▧ 画像</button>
+          </div>
+        </div>
+
+        <div class="tool-section tool-section--view">
+          <div class="section-title">表示</div>
+          <div class="zoom-row">
+            <button id="zoomOutBtn" class="icon-button" type="button" title="縮小">−</button>
+            <output id="zoomLabel">100%</output>
+            <button id="zoomInBtn" class="icon-button" type="button" title="拡大">＋</button>
+            <button id="fitBtn" type="button">全体</button>
+          </div>
+        </div>
+
+        <div class="tool-section tool-section--align">
+          <div class="section-title">整列</div>
+          <div class="align-panel">
+            <div class="align-actions">
+              <button id="alignHorizontalBtn" type="button">横に整列</button>
+              <button id="alignVerticalBtn" type="button">縦に整列</button>
+            </div>
+            <label class="align-spacing">
+              <span>間隔</span>
+              <input id="alignSpacingInput" type="range" min="0" max="240" step="4" value="24">
+              <output id="alignSpacingValue">24px</output>
+            </label>
+            <p id="alignHint" class="panel-note">人物を2人以上チェック</p>
+          </div>
+        </div>
+
+        <div class="tool-section tool-section--select">
+          <div class="section-title">選択</div>
+          <div id="selectionList" class="selection-list"></div>
+        </div>
+      </aside>
+
+      <section class="canvas-area" aria-label="相関図キャンバス">
+        <div class="canvas-toolbar">
+          <button id="centerBtn" type="button">中央へ</button>
+          <button id="clearBtn" class="danger-ghost" type="button">全削除</button>
+        </div>
+        <svg id="diagram" role="img" aria-label="相関図" tabindex="0"></svg>
+      </section>
+
+      <aside class="inspector" aria-label="編集パネル">
+        <div class="section-title">編集</div>
+        <div id="inspectorContent"></div>
+      </aside>
+    </main>
+
+    <button id="toggleToolsBtn" class="tools-toggle" type="button" aria-label="左パネルを閉じる" aria-pressed="false">‹</button>
+  </div>
+
+  <div id="cropEditor" class="crop-editor" aria-hidden="true">
+    <div class="crop-editor__bar">
+      <button id="cropCancelBtn" type="button">キャンセル</button>
+      <strong>画像位置調整</strong>
+      <button id="cropApplyBtn" type="button">適用</button>
+    </div>
+    <div id="cropStage" class="crop-stage">
+      <div id="cropFrame" class="crop-frame">
+        <img id="cropImage" class="crop-image" alt="">
+      </div>
+    </div>
+    <div class="crop-controls" aria-label="ズーム操作">
+      <button id="cropZoomOutBtn" class="icon-button" type="button" title="縮小">−</button>
+      <button id="cropResetBtn" type="button">リセット</button>
+      <button id="cropZoomInBtn" class="icon-button" type="button" title="拡大">＋</button>
+    </div>
+  </div>
+
+  <div id="projectDialog" class="project-dialog" aria-hidden="true">
+    <div class="project-dialog__panel" role="dialog" aria-modal="true" aria-labelledby="projectDialogTitle">
+      <div class="project-dialog__head">
+        <strong id="projectDialogTitle">保存・読込</strong>
+        <button id="projectCloseBtn" class="icon-button" type="button" title="閉じる">×</button>
+      </div>
+      <div id="projectDialogContent" class="project-dialog__content"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
