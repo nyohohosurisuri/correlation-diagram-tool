@@ -1763,6 +1763,7 @@
     let trunkPath = "";
     let labelPoint;
     let routeHandlePoint;
+    let trunkPoints = [];
     const terminalHandles = [];
 
     if (useHorizontalTrunk) {
@@ -1784,6 +1785,7 @@
           anchor,
           join,
           side: "from",
+          endpointId: endpoint.id,
           terminal,
           obstacles: nodeObstacles
         };
@@ -1799,6 +1801,7 @@
           join,
           anchor,
           side: "to",
+          endpointId: endpoint.id,
           terminal,
           obstacles: nodeObstacles
         };
@@ -1807,19 +1810,29 @@
       const minY = Math.min(...ys);
       const maxY = Math.max(...ys);
       trunkPath = `M ${trunkX} ${minY} L ${trunkX} ${maxY}`;
-      const trunkPoints = [{ x: trunkX, y: minY }, { x: trunkX, y: maxY }];
+      trunkPoints = [{ x: trunkX, y: minY }, { x: trunkX, y: maxY }];
       labelPoint = pointOnPolyline(trunkPoints, normalizedLinkLabelPosition(link));
       routeHandlePoint = pointOnPolyline(trunkPoints, 0.5);
       sourceBranches.forEach((branch) => {
+        const points = orthogonalBranchPoints(branch.anchor, branch.join, "horizontal", "from", branch.obstacles, { start: branch.terminal });
         allBranches.push({
-          d: polylinePath(orthogonalBranchPoints(branch.anchor, branch.join, "horizontal", "from", branch.obstacles, { start: branch.terminal })),
+          d: polylinePath(points),
+          points,
+          side: branch.side,
+          endpointId: branch.endpointId,
+          terminal: branch.terminal,
           markerStart: link.type === "bidirectional",
           markerEnd: false
         });
       });
       targetBranches.forEach((branch) => {
+        const points = orthogonalBranchPoints(branch.join, branch.anchor, "horizontal", "to", branch.obstacles, { end: branch.terminal });
         allBranches.push({
-          d: polylinePath(orthogonalBranchPoints(branch.join, branch.anchor, "horizontal", "to", branch.obstacles, { end: branch.terminal })),
+          d: polylinePath(points),
+          points,
+          side: branch.side,
+          endpointId: branch.endpointId,
+          terminal: branch.terminal,
           markerStart: false,
           markerEnd: link.type === "bidirectional" || link.type === "arrow"
         });
@@ -1843,6 +1856,7 @@
           anchor,
           join,
           side: "from",
+          endpointId: endpoint.id,
           terminal,
           obstacles: nodeObstacles
         };
@@ -1858,6 +1872,7 @@
           join,
           anchor,
           side: "to",
+          endpointId: endpoint.id,
           terminal,
           obstacles: nodeObstacles
         };
@@ -1866,19 +1881,29 @@
       const minX = Math.min(...xs);
       const maxX = Math.max(...xs);
       trunkPath = `M ${minX} ${trunkY} L ${maxX} ${trunkY}`;
-      const trunkPoints = [{ x: minX, y: trunkY }, { x: maxX, y: trunkY }];
+      trunkPoints = [{ x: minX, y: trunkY }, { x: maxX, y: trunkY }];
       labelPoint = pointOnPolyline(trunkPoints, normalizedLinkLabelPosition(link));
       routeHandlePoint = pointOnPolyline(trunkPoints, 0.5);
       sourceBranches.forEach((branch) => {
+        const points = orthogonalBranchPoints(branch.anchor, branch.join, "vertical", "from", branch.obstacles, { start: branch.terminal });
         allBranches.push({
-          d: polylinePath(orthogonalBranchPoints(branch.anchor, branch.join, "vertical", "from", branch.obstacles, { start: branch.terminal })),
+          d: polylinePath(points),
+          points,
+          side: branch.side,
+          endpointId: branch.endpointId,
+          terminal: branch.terminal,
           markerStart: link.type === "bidirectional",
           markerEnd: false
         });
       });
       targetBranches.forEach((branch) => {
+        const points = orthogonalBranchPoints(branch.join, branch.anchor, "vertical", "to", branch.obstacles, { end: branch.terminal });
         allBranches.push({
-          d: polylinePath(orthogonalBranchPoints(branch.join, branch.anchor, "vertical", "to", branch.obstacles, { end: branch.terminal })),
+          d: polylinePath(points),
+          points,
+          side: branch.side,
+          endpointId: branch.endpointId,
+          terminal: branch.terminal,
           markerStart: false,
           markerEnd: link.type === "bidirectional" || link.type === "arrow"
         });
@@ -1889,8 +1914,15 @@
     allBranches.forEach((branch) => {
       appendLinkPath(g, link, branch.d, active, { ...branch, lineCap: "butt" });
     });
+    if (active) {
+      appendLinkSegmentHandles(g, link, trunkPoints);
+      allBranches.forEach((branch) => {
+        appendLinkSegmentHandles(g, link, branch.points || []);
+        appendLinkTerminalSegmentHandle(g, link, branch.points || [], branch.terminal, branch.side, branch.endpointId);
+      });
+    }
     appendLinkLabel(g, link, labelPoint);
-    if (active && routeHandlePoint) appendLinkRouteHandle(g, link, routeHandlePoint);
+    if (active && routeHandlePoint) appendLinkRouteHandle(g, link, routeHandlePoint, useHorizontalTrunk ? "vertical" : "horizontal");
     if (active) {
       terminalHandles.forEach((handle) => {
         appendLinkTerminalHandle(g, link, handle.point, handle.side, handle.endpointId, handle.axis);
@@ -1909,6 +1941,11 @@
     });
     appendLinkLabel(g, link, pointOnPolyline(points, normalizedLinkLabelPosition(link)));
     if (active) appendLinkRouteHandle(g, link, pointOnPolyline(points, 0.5));
+    if (active) {
+      appendLinkSegmentHandles(g, link, points);
+      appendLinkTerminalSegmentHandle(g, link, points, geometry.startTerminal, "from", fromEndpoint.id);
+      appendLinkTerminalSegmentHandle(g, link, points, geometry.endTerminal, "to", toEndpoint.id);
+    }
     if (active && geometry.startTerminal) appendLinkTerminalHandle(g, link, geometry.startTerminal.point, "from", fromEndpoint.id, geometry.startTerminal.axis);
     if (active && geometry.endTerminal) appendLinkTerminalHandle(g, link, geometry.endTerminal.point, "to", toEndpoint.id, geometry.endTerminal.axis);
   }
@@ -1984,10 +2021,11 @@
     }
   }
 
-  function appendLinkRouteHandle(g, link, point) {
+  function appendLinkRouteHandle(g, link, point, axis = "") {
     const handle = createSvg("g", {
       "data-type": "link-route",
       "data-id": link.id,
+      "data-axis": axis,
       class: "link-route-handle"
     });
     handle.appendChild(createSvg("circle", {
@@ -2014,6 +2052,105 @@
       "pointer-events": "none"
     }));
     g.appendChild(handle);
+  }
+
+  function appendLinkSegmentHandles(g, link, points) {
+    for (let index = 1; index < points.length; index += 1) {
+      appendLinkRouteSegmentHandle(g, link, points[index - 1], points[index]);
+    }
+  }
+
+  function appendLinkRouteSegmentHandle(g, link, start, end) {
+    const axis = segmentAxis(start, end);
+    if (!axis || distance(start, end) < 20) return;
+    const point = midpoint(start, end);
+    const handle = createSvg("g", {
+      "data-type": "link-route",
+      "data-id": link.id,
+      "data-axis": axis,
+      class: "link-route-handle link-segment-handle"
+    });
+    handle.appendChild(createSvg("path", {
+      d: `M ${start.x} ${start.y} L ${end.x} ${end.y}`,
+      fill: "none",
+      stroke: "transparent",
+      "stroke-width": 30,
+      "stroke-linecap": "round",
+      "pointer-events": "stroke"
+    }));
+    handle.appendChild(createSvg("rect", {
+      x: point.x - 7,
+      y: point.y - 7,
+      width: 14,
+      height: 14,
+      rx: 3,
+      fill: "#ffffff",
+      stroke: "#202329",
+      "stroke-width": 1.5,
+      "pointer-events": "none"
+    }));
+    handle.appendChild(createSvg("path", {
+      d: axis === "horizontal"
+        ? `M ${point.x} ${point.y - 4} L ${point.x} ${point.y + 4}`
+        : `M ${point.x - 4} ${point.y} L ${point.x + 4} ${point.y}`,
+      stroke: link.color || "#202329",
+      "stroke-width": 2,
+      "stroke-linecap": "round",
+      "pointer-events": "none"
+    }));
+    g.appendChild(handle);
+  }
+
+  function appendLinkTerminalSegmentHandle(g, link, points, terminal, side, endpointId) {
+    if (!terminal) return;
+    for (let index = 1; index < points.length; index += 1) {
+      const start = points[index - 1];
+      const end = points[index];
+      const axis = segmentAxis(start, end);
+      if (!axis) continue;
+      const terminalMovesSegment = (terminal.axis === "vertical" && axis === "horizontal")
+        || (terminal.axis === "horizontal" && axis === "vertical");
+      if (!terminalMovesSegment || !pointIsOnSegment(terminal.point, start, end)) continue;
+      const point = midpoint(start, end);
+      const handle = createSvg("g", {
+        "data-type": "link-terminal",
+        "data-id": link.id,
+        "data-side": side,
+        "data-endpoint-id": endpointId,
+        "data-axis": terminal.axis,
+        class: "link-terminal-handle link-segment-handle"
+      });
+      handle.appendChild(createSvg("path", {
+        d: `M ${start.x} ${start.y} L ${end.x} ${end.y}`,
+        fill: "none",
+        stroke: "transparent",
+        "stroke-width": 34,
+        "stroke-linecap": "round",
+        "pointer-events": "stroke"
+      }));
+      handle.appendChild(createSvg("rect", {
+        x: point.x - 7,
+        y: point.y - 7,
+        width: 14,
+        height: 14,
+        rx: 3,
+        fill: "#ffffff",
+        stroke: link.color || "#202329",
+        "stroke-width": 1.8,
+        "pointer-events": "none"
+      }));
+      handle.appendChild(createSvg("path", {
+        d: terminal.axis === "vertical"
+          ? `M ${point.x} ${point.y - 4} L ${point.x} ${point.y + 4}`
+          : `M ${point.x - 4} ${point.y} L ${point.x + 4} ${point.y}`,
+        stroke: "#202329",
+        "stroke-width": 2,
+        "stroke-linecap": "round",
+        "pointer-events": "none"
+      }));
+      g.appendChild(handle);
+      return;
+    }
   }
 
   function appendLinkTerminalHandle(g, link, point, side, endpointId, axis) {
@@ -3778,7 +3915,7 @@
     }
 
     if (target?.type === "link-route") {
-      if (startLinkRouteDrag(event, target.id, point, screen)) return;
+      if (startLinkRouteDrag(event, target, point, screen)) return;
     }
 
     if (target?.type === "link-label") {
@@ -4118,9 +4255,12 @@
     lastTap = isDoubleTap ? null : { type, id, time: now, screen };
   }
 
-  function startLinkRouteDrag(event, id, point, screen) {
+  function startLinkRouteDrag(event, targetOrId, point, screen) {
+    const id = typeof targetOrId === "string" ? targetOrId : targetOrId?.id;
     const link = getLink(id);
     if (!link) return false;
+    const axis = typeof targetOrId === "string" ? "" : targetOrId?.axis;
+    const routeMode = axis === "horizontal" ? "y" : axis === "vertical" ? "x" : linkRouteDragMode(link);
     selected = { type: "link", id: link.id };
     mode = "select";
     pendingConnection = null;
@@ -4131,7 +4271,7 @@
       pointerId: event.pointerId,
       start: point,
       startScreen: screen,
-      routeMode: linkRouteDragMode(link),
+      routeMode,
       original: {
         routeOffsetX: normalizedLinkRouteOffsetX(link),
         routeOffsetY: normalizedLinkRouteOffsetY(link)
@@ -6526,6 +6666,23 @@
 
   function sameY(a, b) {
     return sameCoord(a.y, b.y);
+  }
+
+  function segmentAxis(start, end) {
+    if (sameY(start, end) && !sameX(start, end)) return "horizontal";
+    if (sameX(start, end) && !sameY(start, end)) return "vertical";
+    return "";
+  }
+
+  function pointIsOnSegment(point, start, end) {
+    if (samePoint(point, start) || samePoint(point, end)) return true;
+    if (sameY(start, end) && sameY(point, start)) {
+      return point.x >= Math.min(start.x, end.x) - 0.001 && point.x <= Math.max(start.x, end.x) + 0.001;
+    }
+    if (sameX(start, end) && sameX(point, start)) {
+      return point.y >= Math.min(start.y, end.y) - 0.001 && point.y <= Math.max(start.y, end.y) + 0.001;
+    }
+    return false;
   }
 
   function polylinePath(points) {

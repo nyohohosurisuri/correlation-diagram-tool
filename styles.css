@@ -850,6 +850,8 @@ body[data-tools-collapsed="true"] .tools-toggle {
 .shape-handle,
 .image-handle,
 .legend-handle,
+.link-route-handle,
+.link-terminal-handle,
 .link-label {
   cursor: grab;
 }
@@ -859,6 +861,8 @@ body[data-tools-collapsed="true"] .tools-toggle {
 .shape-handle:active,
 .image-handle:active,
 .legend-handle:active,
+.link-route-handle:active,
+.link-terminal-handle:active,
 .link-label:active {
   cursor: grabbing;
 }
