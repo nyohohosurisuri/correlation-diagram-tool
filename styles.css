@@ -469,6 +469,32 @@ body[data-tools-collapsed="true"] .tools-toggle {
   resize: vertical;
 }
 
+.field-collapse {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.field-collapse summary {
+  min-height: 28px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 28px;
+  user-select: none;
+}
+
+.field-collapse-body {
+  display: grid;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
 .range-with-value {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 62px;

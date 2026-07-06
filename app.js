@@ -2688,30 +2688,32 @@
       node.role = value;
       scheduleChange();
     })));
-    form.appendChild(field("名前文字色", swatches(node.nameTextColor || "#ffffff", (value) => {
-      node.nameTextColor = value;
-      scheduleChange();
-    }, ["#ffffff", "#202329", ...PALETTE])));
-    form.appendChild(field("名前フチ色", swatches(node.nameOutlineColor || "#202329", (value) => {
-      node.nameOutlineColor = value;
-      scheduleChange();
-    }, ["#202329", "#ffffff", ...PALETTE])));
-    form.appendChild(field("名前フチ幅", rangeWithValue(normalizeNodeOutlineWidth(node.nameOutlineWidth), 0, 8, (value) => {
-      node.nameOutlineWidth = value;
-      scheduleChange();
-    }, 1, "px")));
-    form.appendChild(field("肩書き文字色", swatches(node.roleTextColor || "#ffffff", (value) => {
-      node.roleTextColor = value;
-      scheduleChange();
-    }, ["#ffffff", "#202329", ...PALETTE])));
-    form.appendChild(field("肩書きフチ色", swatches(node.roleOutlineColor || "#202329", (value) => {
-      node.roleOutlineColor = value;
-      scheduleChange();
-    }, ["#202329", "#ffffff", ...PALETTE])));
-    form.appendChild(field("肩書きフチ幅", rangeWithValue(normalizeNodeOutlineWidth(node.roleOutlineWidth), 0, 8, (value) => {
-      node.roleOutlineWidth = value;
-      scheduleChange();
-    }, 1, "px")));
+    form.appendChild(collapsedFieldSection("名前・肩書の文字色/フチ", [
+      field("名前文字色", swatches(node.nameTextColor || "#ffffff", (value) => {
+        node.nameTextColor = value;
+        scheduleChange();
+      }, ["#ffffff", "#202329", ...PALETTE])),
+      field("名前フチ色", swatches(node.nameOutlineColor || "#202329", (value) => {
+        node.nameOutlineColor = value;
+        scheduleChange();
+      }, ["#202329", "#ffffff", ...PALETTE])),
+      field("名前フチ幅", rangeWithValue(normalizeNodeOutlineWidth(node.nameOutlineWidth), 0, 8, (value) => {
+        node.nameOutlineWidth = value;
+        scheduleChange();
+      }, 1, "px")),
+      field("肩書き文字色", swatches(node.roleTextColor || "#ffffff", (value) => {
+        node.roleTextColor = value;
+        scheduleChange();
+      }, ["#ffffff", "#202329", ...PALETTE])),
+      field("肩書きフチ色", swatches(node.roleOutlineColor || "#202329", (value) => {
+        node.roleOutlineColor = value;
+        scheduleChange();
+      }, ["#202329", "#ffffff", ...PALETTE])),
+      field("肩書きフチ幅", rangeWithValue(normalizeNodeOutlineWidth(node.roleOutlineWidth), 0, 8, (value) => {
+        node.roleOutlineWidth = value;
+        scheduleChange();
+      }, 1, "px"))
+    ]));
     form.appendChild(field("メモ", textarea(node.memo, (value) => {
       node.memo = value;
       scheduleChange(false);
@@ -3227,6 +3229,15 @@
     wrapper.appendChild(el("span", {}, labelText));
     wrapper.appendChild(control);
     return wrapper;
+  }
+
+  function collapsedFieldSection(summaryText, controls) {
+    const details = el("details", { class: "field-collapse" });
+    details.appendChild(el("summary", {}, summaryText));
+    const body = el("div", { class: "field-collapse-body" });
+    controls.forEach((control) => body.appendChild(control));
+    details.appendChild(body);
+    return details;
   }
 
   function textInput(value, onInput) {
