@@ -398,6 +398,7 @@
         w: 300,
         h: 200,
         color: PALETTE[(state.groups.length + 2) % PALETTE.length],
+        fillOpacity: 0.13,
         gradient: defaultGradient(PALETTE[(state.groups.length + 2) % PALETTE.length]),
         titleFontSize: GROUP_TITLE_DEFAULT_FONT_SIZE,
         titleFontFamily: "default",
@@ -767,7 +768,7 @@
     });
     state.groups.forEach((group) => {
       appendObjectGradient(defs, group, "group", 1);
-      appendObjectGradient(defs, group, "group-bg", 0.13);
+      appendObjectGradient(defs, group, "group-bg", normalizeGroupFillOpacity(group.fillOpacity));
     });
   }
 
@@ -813,7 +814,8 @@
   function objectGradientId(item, kind, opacity = 1) {
     const safeId = String(item.id || "item").replace(/[^a-zA-Z0-9_-]/g, "");
     const safeKind = String(kind || "gradient").replace(/[^a-zA-Z0-9_-]/g, "");
-    const safeOpacity = String(Math.round((Number(opacity) || 1) * 1000));
+    const opacityValue = Number(opacity);
+    const safeOpacity = String(Math.round((Number.isFinite(opacityValue) ? opacityValue : 1) * 1000));
     return `gradient_${safeKind}_${safeId}_${safeOpacity}`;
   }
 
@@ -959,6 +961,7 @@
     const active = isSelected("group", group.id);
     const titleFontSize = normalizeGroupTitleFontSize(group.titleFontSize);
     const shape = normalizeGroupShape(group.shape);
+    const fillOpacity = normalizeGroupFillOpacity(group.fillOpacity);
     const titlePoint = groupTitlePoint(group, titleFontSize);
     const g = createSvg("g", {
       "data-type": "group",
@@ -966,7 +969,7 @@
       class: "node-handle"
     });
     const groupShapeAttrs = {
-      fill: objectGradientFill(group, "group-bg", 0.13),
+      fill: objectGradientFill(group, "group-bg", fillOpacity),
       stroke: active ? "#202329" : objectGradientFill(group, "group"),
       "stroke-width": active ? 3 : 2,
       "stroke-dasharray": "8 6",
@@ -2899,6 +2902,10 @@
       group.color = value;
       scheduleChange();
     })));
+    form.appendChild(field("透明度", rangeWithValue(Math.round(normalizeGroupFillOpacity(group.fillOpacity) * 100), 0, 100, (value) => {
+      group.fillOpacity = clamp(Number(value) || 0, 0, 100) / 100;
+      scheduleChange();
+    }, 1, "%")));
     form.appendChild(field("グラデーション", gradientControls(group)));
     form.appendChild(sizeControls(group, "group"));
     form.appendChild(el("div", { class: "divider" }));
@@ -5708,6 +5715,7 @@
         w: clamp(Number(group.w) || 280, GROUP_MIN_WIDTH, GROUP_MAX_WIDTH),
         h: clamp(Number(group.h) || 180, GROUP_MIN_HEIGHT, GROUP_MAX_HEIGHT),
         color: group.color || PALETTE[2],
+        fillOpacity: normalizeGroupFillOpacity(group.fillOpacity),
         gradient: normalizeGradient(group.gradient, group.color || PALETTE[2]),
         titleFontSize: normalizeGroupTitleFontSize(group.titleFontSize),
         titleFontFamily: normalizeGroupTitleFontId(group.titleFontFamily),
@@ -5791,6 +5799,11 @@
 
   function normalizeGroupShape(value) {
     return GROUP_SHAPE_IDS.has(value) ? value : "rect";
+  }
+
+  function normalizeGroupFillOpacity(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? clamp(number, 0, 1) : 0.13;
   }
 
   function normalizeGroupNotchWidth(group) {
