@@ -24,12 +24,13 @@
         </div>
       </div>
       <div class="top-actions" aria-label="ファイル操作">
-        <button id="undoBtn" class="icon-button" type="button" title="元に戻す">↶</button>
-        <button id="redoBtn" class="icon-button" type="button" title="やり直す">↷</button>
-        <button id="newBtn" type="button">新規</button>
-        <button id="saveBtn" type="button">保存</button>
-        <button id="loadBtn" type="button">読込</button>
-        <button id="pngBtn" type="button">PNG</button>
+        <button id="undoBtn" class="icon-button" type="button" title="元に戻す" data-edit-only>↶</button>
+        <button id="redoBtn" class="icon-button" type="button" title="やり直す" data-edit-only>↷</button>
+        <button id="viewModeBtn" type="button" aria-pressed="false" title="閲覧モード">閲覧</button>
+        <button id="newBtn" type="button" data-edit-only>新規</button>
+        <button id="saveBtn" type="button" data-edit-only>保存</button>
+        <button id="loadBtn" type="button" data-edit-only>読込</button>
+        <button id="pngBtn" type="button" data-edit-only>PNG</button>
         <input id="fileInput" type="file" accept="application/json,.json" hidden>
         <input id="imageInsertInput" type="file" accept="image/*" hidden>
       </div>
@@ -47,13 +48,13 @@
         <div class="tool-section tool-section--create">
           <div class="section-title">作成</div>
           <div class="tool-grid">
-            <button id="addNodeBtn" class="primary-action" type="button">＋ 人物</button>
-            <button id="connectBtn" type="button" aria-pressed="false">↔ 関係</button>
-            <button id="addGroupBtn" type="button">□ グループ</button>
-            <button id="addTextBtn" type="button">T テキスト</button>
-            <button id="addShapeBtn" type="button">☆ 図形</button>
-            <button id="addLegendBtn" type="button">◎ 凡例</button>
-            <button id="addImageBtn" type="button">▧ 画像</button>
+            <button id="addNodeBtn" class="primary-action" type="button" data-edit-only>＋ 人物</button>
+            <button id="connectBtn" type="button" aria-pressed="false" data-edit-only>↔ 関係</button>
+            <button id="addGroupBtn" type="button" data-edit-only>□ グループ</button>
+            <button id="addTextBtn" type="button" data-edit-only>T テキスト</button>
+            <button id="addShapeBtn" type="button" data-edit-only>☆ 図形</button>
+            <button id="addLegendBtn" type="button" data-edit-only>◎ 凡例</button>
+            <button id="addImageBtn" type="button" data-edit-only>▧ 画像</button>
           </div>
         </div>
 
@@ -71,8 +72,8 @@
           <div class="section-title">整列</div>
           <div class="align-panel">
             <div class="align-actions">
-              <button id="alignHorizontalBtn" type="button">横に整列</button>
-              <button id="alignVerticalBtn" type="button">縦に整列</button>
+              <button id="alignHorizontalBtn" type="button" data-edit-only>横に整列</button>
+              <button id="alignVerticalBtn" type="button" data-edit-only>縦に整列</button>
             </div>
             <label class="align-spacing">
               <span>間隔</span>
@@ -92,7 +93,7 @@
       <section class="canvas-area" aria-label="相関図キャンバス">
         <div class="canvas-toolbar">
           <button id="centerBtn" type="button">中央へ</button>
-          <button id="clearBtn" class="danger-ghost" type="button">全削除</button>
+          <button id="clearBtn" class="danger-ghost" type="button" data-edit-only>全削除</button>
         </div>
         <svg id="diagram" role="img" aria-label="相関図" tabindex="0"></svg>
       </section>

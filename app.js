@@ -152,6 +152,7 @@
   const toolPanel = document.querySelector(".tool-panel");
   const toggleToolsBtn = document.querySelector("#toggleToolsBtn");
   const mobileToolButtons = [...document.querySelectorAll("[data-mobile-tool]")];
+  const editOnlyControls = [...document.querySelectorAll("[data-edit-only]")];
   const fileInput = document.querySelector("#fileInput");
   const imageInsertInput = document.querySelector("#imageInsertInput");
   const projectDialog = document.querySelector("#projectDialog");
@@ -166,6 +167,7 @@
   const alignHint = document.querySelector("#alignHint");
   const undoBtn = document.querySelector("#undoBtn");
   const redoBtn = document.querySelector("#redoBtn");
+  const viewModeBtn = document.querySelector("#viewModeBtn");
   const zoomLabel = document.querySelector("#zoomLabel");
   ensureCropEditorMarkup();
   const cropEditor = document.querySelector("#cropEditor");
@@ -248,7 +250,7 @@
           id: uid("node"),
           name: "主人公",
           role: "中心人物",
-          memo: "",
+          description: "",
           x: 420,
           y: 240,
           w: NODE_DEFAULT_WIDTH,
@@ -265,7 +267,7 @@
           id: uid("node"),
           name: "協力者",
           role: "味方",
-          memo: "",
+          description: "",
           x: 175,
           y: 140,
           w: NODE_DEFAULT_WIDTH,
@@ -282,7 +284,7 @@
           id: uid("node"),
           name: "ライバル",
           role: "競争相手",
-          memo: "",
+          description: "",
           x: 660,
           y: 155,
           w: NODE_DEFAULT_WIDTH,
@@ -299,7 +301,7 @@
           id: uid("node"),
           name: "組織",
           role: "所属先",
-          memo: "",
+          description: "",
           x: 420,
           y: 430,
           w: NODE_DEFAULT_WIDTH,
@@ -371,12 +373,13 @@
     });
 
     document.querySelector("#addNodeBtn").addEventListener("click", () => {
+      if (isViewMode()) return;
       const center = screenCenterWorld();
       const node = {
         id: uid("node"),
         name: `人物${state.nodes.length + 1}`,
         role: "",
-        memo: "",
+        description: "",
         x: center.x - NODE_DEFAULT_WIDTH / 2,
         y: center.y - NODE_DEFAULT_HEIGHT / 2,
         w: NODE_DEFAULT_WIDTH,
@@ -397,6 +400,7 @@
     });
 
     connectBtn.addEventListener("click", () => {
+      if (isViewMode()) return;
       mode = mode === "connect" ? "select" : "connect";
       pendingConnection = null;
       updateStatus();
@@ -404,6 +408,7 @@
     });
 
     document.querySelector("#addGroupBtn").addEventListener("click", () => {
+      if (isViewMode()) return;
       const center = screenCenterWorld();
       const group = {
         id: uid("group"),
@@ -432,6 +437,7 @@
     });
 
     document.querySelector("#addTextBtn").addEventListener("click", () => {
+      if (isViewMode()) return;
       const center = screenCenterWorld();
       const textItem = {
         id: uid("text"),
@@ -456,6 +462,7 @@
     });
 
     document.querySelector("#addShapeBtn").addEventListener("click", () => {
+      if (isViewMode()) return;
       const center = screenCenterWorld();
       const shape = {
         id: uid("shape"),
@@ -480,6 +487,7 @@
     });
 
     document.querySelector("#addLegendBtn").addEventListener("click", () => {
+      if (isViewMode()) return;
       const center = screenCenterWorld();
       const legend = createDefaultLegend(center);
       state.legends.push(legend);
@@ -492,6 +500,7 @@
     });
 
     document.querySelector("#addImageBtn").addEventListener("click", () => {
+      if (isViewMode()) return;
       imageInsertInput.value = "";
       imageInsertInput.click();
     });
@@ -505,12 +514,14 @@
     alignHorizontalBtn?.addEventListener("click", () => alignSelectedNodes("horizontal"));
     alignVerticalBtn?.addEventListener("click", () => alignSelectedNodes("vertical"));
     alignSpacingInput?.addEventListener("input", () => updateAlignControls());
+    viewModeBtn?.addEventListener("click", toggleViewMode);
     document.querySelector("#centerBtn").addEventListener("click", () => {
       centerViewport();
       render();
     });
 
     document.querySelector("#clearBtn").addEventListener("click", () => {
+      if (isViewMode()) return;
       if (!window.confirm("相関図を全削除します。")) return;
       state.nodes = [];
       state.links = [];
@@ -575,6 +586,7 @@
 
     svg.addEventListener("keydown", (event) => {
       if (event.key === "Delete" || event.key === "Backspace") {
+        if (isViewMode()) return;
         deleteSelected();
       }
       if (event.key === "Escape") {
@@ -582,7 +594,7 @@
           closeCropEditor();
           return;
         }
-        mode = "select";
+        if (mode === "connect") mode = "select";
         pendingConnection = null;
         selected = null;
         multiSelectedNodeIds.clear();
@@ -591,11 +603,13 @@
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
+        if (isViewMode()) return;
         if (event.shiftKey) redo();
         else undo();
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
         event.preventDefault();
+        if (isViewMode()) return;
         redo();
       }
     });
@@ -622,6 +636,38 @@
     toolsCollapsed = !toolsCollapsed;
     localStorage.setItem("correlationDiagramToolToolsCollapsed_v1", toolsCollapsed ? "true" : "false");
     render();
+  }
+
+  function isViewMode() {
+    return mode === "view";
+  }
+
+  function toggleViewMode() {
+    if (isViewMode()) {
+      mode = "select";
+      inspectorOpen = false;
+    } else {
+      mode = "view";
+      pendingConnection = null;
+      multiSelectedNodeIds.clear();
+      inspectorOpen = Boolean(selected);
+    }
+    render();
+  }
+
+  function updateModeControls() {
+    const viewing = isViewMode();
+    editOnlyControls.forEach((control) => {
+      control.disabled = viewing;
+    });
+    if (viewModeBtn) {
+      viewModeBtn.textContent = viewing ? "編集" : "閲覧";
+      viewModeBtn.title = viewing ? "編集モードに戻る" : "閲覧モード";
+      viewModeBtn.setAttribute("aria-pressed", viewing ? "true" : "false");
+    }
+    if (connectBtn) connectBtn.setAttribute("aria-pressed", mode === "connect" ? "true" : "false");
+    if (undoBtn) undoBtn.disabled = viewing || history.length <= 1;
+    if (redoBtn) redoBtn.disabled = viewing || future.length === 0;
   }
 
   function updateToolsToggle() {
@@ -659,7 +705,7 @@
     const currentSelection = selected ? getSelectedItem() : null;
     document.body.dataset.selection = currentSelection ? selected.type : "none";
     document.body.dataset.mode = mode;
-    document.body.dataset.inspectorOpen = inspectorOpen || mode === "connect" ? "true" : "false";
+    document.body.dataset.inspectorOpen = inspectorOpen || mode === "connect" || (isViewMode() && currentSelection) ? "true" : "false";
     document.body.dataset.toolsCollapsed = toolsCollapsed ? "true" : "false";
     renderDiagram();
     renderSelectionList();
@@ -668,14 +714,15 @@
     updateAlignControls();
     updateMobileToolPanel();
     updateToolsToggle();
+    updateModeControls();
   }
 
   function renderDiagram() {
     cancelScheduledRenders();
     connectBtn.setAttribute("aria-pressed", mode === "connect" ? "true" : "false");
     zoomLabel.value = `${Math.round(state.viewport.scale * 100)}%`;
-    undoBtn.disabled = history.length <= 1;
-    redoBtn.disabled = future.length === 0;
+    undoBtn.disabled = isViewMode() || history.length <= 1;
+    redoBtn.disabled = isViewMode() || future.length === 0;
 
     svg.replaceChildren();
     const defs = createSvg("defs");
@@ -2721,10 +2768,12 @@
           title: "整列対象"
         });
         checkbox.checked = multiSelectedNodeIds.has(item.id);
+        checkbox.disabled = isViewMode();
         checkbox.addEventListener("click", (event) => {
           event.stopPropagation();
         });
         checkbox.addEventListener("change", () => {
+          if (isViewMode()) return;
           toggleMultiSelectedNode(item.id, checkbox.checked);
         });
         row.appendChild(checkbox);
@@ -2742,15 +2791,15 @@
       button.appendChild(el("span", { class: "selection-name" }, item.name));
       button.addEventListener("click", () => {
         selected = { type: item.type, id: item.id };
-        inspectorOpen = false;
-        mode = "select";
+        inspectorOpen = isViewMode();
+        if (!isViewMode()) mode = "select";
         pendingConnection = null;
         render();
       });
       button.addEventListener("dblclick", () => {
         selected = { type: item.type, id: item.id };
         inspectorOpen = true;
-        mode = "select";
+        if (!isViewMode()) mode = "select";
         pendingConnection = null;
         render();
       });
@@ -2781,7 +2830,7 @@
       if (!validIds.has(id)) multiSelectedNodeIds.delete(id);
     });
     const count = selectedAlignmentNodes().length;
-    const disabled = count < 2;
+    const disabled = isViewMode() || count < 2;
     if (alignHorizontalBtn) alignHorizontalBtn.disabled = disabled;
     if (alignVerticalBtn) alignVerticalBtn.disabled = disabled;
     if (alignSpacingValue) {
@@ -2789,13 +2838,16 @@
       alignSpacingValue.textContent = `${alignmentSpacing()}px`;
     }
     if (alignHint) {
-      alignHint.textContent = disabled
+      alignHint.textContent = isViewMode()
+        ? "閲覧モード中は整列できません"
+        : disabled
         ? "人物を2人以上チェック"
         : `${count}人を整列対象にしています`;
     }
   }
 
   function alignSelectedNodes(direction) {
+    if (isViewMode()) return;
     const nodes = selectedAlignmentNodes();
     if (nodes.length < 2) return;
     const spacing = alignmentSpacing();
@@ -2832,6 +2884,14 @@
       return;
     }
     const item = selected ? getSelectedItem() : null;
+    if (isViewMode()) {
+      if (!item) {
+        inspectorContent.appendChild(el("div", { class: "empty-state" }, "要素を選択すると詳細を表示します"));
+        return;
+      }
+      renderReadonlyInspector(item);
+      return;
+    }
     if (!item || !inspectorOpen) {
       inspectorContent.appendChild(el("div", { class: "empty-state" }, "未選択"));
       return;
@@ -2843,6 +2903,103 @@
     if (selected.type === "shape") renderShapeInspector(item);
     if (selected.type === "image") renderImageInspector(item);
     if (selected.type === "legend") renderLegendInspector(item);
+  }
+
+  function renderReadonlyInspector(item) {
+    const wrap = el("div", { class: "readonly-details" });
+    wrap.appendChild(el("div", { class: "readonly-mode-badge" }, "閲覧モード"));
+    if (selected.type === "node") {
+      wrap.appendChild(detailRow("種別", "人物"));
+      wrap.appendChild(detailRow("名前", item.name || "人物"));
+      wrap.appendChild(detailRow("肩書き", item.role || ""));
+      wrap.appendChild(detailRow("説明文", nodeDescription(item)));
+      wrap.appendChild(detailRow("属性マーク", nodeMarkLabels(item.marks)));
+    }
+    if (selected.type === "group") {
+      wrap.appendChild(detailRow("種別", "グループ"));
+      wrap.appendChild(detailRow("グループ名", item.title || "グループ"));
+      wrap.appendChild(detailRow("形状", groupShapeLabel(item.shape)));
+    }
+    if (selected.type === "link") {
+      wrap.appendChild(detailRow("種別", "関係線"));
+      wrap.appendChild(detailRow("関係名", item.label || "関係"));
+      wrap.appendChild(detailRow("接続元", endpointLabels(getLinkEndpointIds(item, "fromIds"))));
+      wrap.appendChild(detailRow("接続先", endpointLabels(getLinkEndpointIds(item, "toIds"))));
+      wrap.appendChild(detailRow("種類", linkTypeLabel(item.type)));
+      wrap.appendChild(detailRow("線の形", linkRouteLabel(item.route)));
+    }
+    if (selected.type === "text") {
+      wrap.appendChild(detailRow("種別", "文章"));
+      wrap.appendChild(detailRow("内容", item.content || ""));
+    }
+    if (selected.type === "shape") {
+      wrap.appendChild(detailRow("種別", "図形"));
+      wrap.appendChild(detailRow("図形", shapeLabel(item)));
+    }
+    if (selected.type === "image") {
+      wrap.appendChild(detailRow("種別", "画像"));
+      wrap.appendChild(detailRow("名前", item.name || "画像"));
+    }
+    if (selected.type === "legend") {
+      wrap.appendChild(detailRow("種別", "凡例"));
+      wrap.appendChild(detailRow("見出し", item.title || "属性マーク凡例"));
+      wrap.appendChild(detailRow("項目", legendDetailText(item)));
+    }
+    inspectorContent.appendChild(wrap);
+  }
+
+  function detailRow(label, value) {
+    const text = String(value || "").trim();
+    const row = el("div", { class: "detail-field" });
+    row.appendChild(el("div", { class: "detail-label" }, label));
+    row.appendChild(el("div", { class: `detail-value${text ? "" : " is-empty"}` }, text || "未設定"));
+    return row;
+  }
+
+  function nodeDescription(node) {
+    return String(node?.description ?? node?.memo ?? "");
+  }
+
+  function nodeMarkLabels(marks) {
+    const labels = normalizeNodeMarks(marks)
+      .map((id) => NODE_MARKS.find((mark) => mark.id === id)?.label)
+      .filter(Boolean);
+    return labels.join("、");
+  }
+
+  function endpointLabels(ids) {
+    return ids
+      .map((id) => getConnectionEndpoint(id)?.label || "")
+      .filter(Boolean)
+      .join("、");
+  }
+
+  function linkTypeLabel(type) {
+    if (type === "from-to") return "接続元から接続先";
+    if (type === "to-from") return "接続先から接続元";
+    if (type === "none") return "矢印なし";
+    return "双方向";
+  }
+
+  function linkRouteLabel(route) {
+    if (route === "straight") return "直線";
+    if (route === "curve") return "曲線";
+    return "直角";
+  }
+
+  function groupShapeLabel(shape) {
+    return GROUP_SHAPES.find(([id]) => id === normalizeGroupShape(shape))?.[1] || "四角";
+  }
+
+  function legendDetailText(legend) {
+    return normalizeLegendItems(legend.items)
+      .filter((item) => item.visible)
+      .map((item) => {
+        const mark = NODE_MARKS.find((candidate) => candidate.id === item.markId);
+        return item.text || mark?.label || "";
+      })
+      .filter(Boolean)
+      .join("\n");
   }
 
   function renderNodeInspector(node) {
@@ -2881,8 +3038,8 @@
         scheduleChange();
       }, 1, "px"))
     ]));
-    form.appendChild(field("メモ", textarea(node.memo, (value) => {
-      node.memo = value;
+    form.appendChild(field("説明文", textarea(nodeDescription(node), (value) => {
+      node.description = value;
       scheduleChange(false);
     })));
     form.appendChild(field("色", swatches(node.color, (value) => {
@@ -3753,6 +3910,10 @@
   }
 
   function insertUploadedImage(event) {
+    if (isViewMode()) {
+      event.target.value = "";
+      return;
+    }
     const file = event.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -3799,6 +3960,7 @@
   }
 
   function createNewProject() {
+    if (isViewMode()) return;
     if ((hasDiagramContent() || currentProjectId) && !window.confirm("現在の作業内容を閉じて、新規作成しますか？")) return;
     closeCropEditor();
     closeProjectDialog();
@@ -4072,6 +4234,22 @@
 
     if (workspacePointers.size >= 2) {
       startWorkspacePinch();
+      return;
+    }
+
+    if (isViewMode()) {
+      const viewSelection = selectionFromDiagramTarget(target);
+      selected = viewSelection;
+      inspectorOpen = Boolean(viewSelection);
+      pendingConnection = null;
+      drag = {
+        type: "pan",
+        pointerId: event.pointerId,
+        start: screen,
+        original: { x: state.viewport.x, y: state.viewport.y },
+        moved: false
+      };
+      render();
       return;
     }
 
@@ -4622,6 +4800,23 @@
     lastTap = isDoubleTap ? null : { type, id, time: now, screen };
   }
 
+  function selectionFromDiagramTarget(target) {
+    if (!target?.type || !target.id) return null;
+    if (target.type === "group-resize" || target.type === "group-notch") {
+      return getGroup(target.id) ? { type: "group", id: target.id } : null;
+    }
+    if (target.type === "link-label" || target.type === "link-route" || target.type === "link-terminal" || target.type === "link-anchor" || target.type === "link") {
+      return getLink(target.id) ? { type: "link", id: target.id } : null;
+    }
+    if (target.type === "node") return getNode(target.id) ? { type: "node", id: target.id } : null;
+    if (target.type === "group") return getGroup(target.id) ? { type: "group", id: target.id } : null;
+    if (target.type === "text") return getTextItem(target.id) ? { type: "text", id: target.id } : null;
+    if (target.type === "shape") return getShape(target.id) ? { type: "shape", id: target.id } : null;
+    if (target.type === "image") return getImageItem(target.id) ? { type: "image", id: target.id } : null;
+    if (target.type === "legend") return getLegend(target.id) ? { type: "legend", id: target.id } : null;
+    return null;
+  }
+
   function startLinkRouteDrag(event, targetOrId, point, screen) {
     const id = typeof targetOrId === "string" ? targetOrId : targetOrId?.id;
     const link = getLink(id);
@@ -4802,6 +4997,7 @@
   }
 
   function duplicateNode(node) {
+    if (isViewMode()) return;
     const copy = {
       ...structuredClone(node),
       id: uid("node"),
@@ -4817,6 +5013,7 @@
   }
 
   function duplicateGroup(group) {
+    if (isViewMode()) return;
     const copy = {
       ...structuredClone(group),
       id: uid("group"),
@@ -4832,6 +5029,7 @@
   }
 
   function duplicateText(textItem) {
+    if (isViewMode()) return;
     const copy = {
       ...structuredClone(textItem),
       id: uid("text"),
@@ -4846,6 +5044,7 @@
   }
 
   function duplicateShape(shape) {
+    if (isViewMode()) return;
     const copy = {
       ...structuredClone(shape),
       id: uid("shape"),
@@ -4860,6 +5059,7 @@
   }
 
   function duplicateImage(imageItem) {
+    if (isViewMode()) return;
     const copy = {
       ...structuredClone(imageItem),
       id: uid("image"),
@@ -4875,6 +5075,7 @@
   }
 
   function duplicateLegend(legend) {
+    if (isViewMode()) return;
     const copy = {
       ...structuredClone(legend),
       id: uid("legend"),
@@ -4890,6 +5091,7 @@
   }
 
   function deleteSelected() {
+    if (isViewMode()) return;
     if (!selected) return;
     if (selected.type === "node") {
       state.nodes = state.nodes.filter((node) => node.id !== selected.id);
@@ -4922,6 +5124,7 @@
   }
 
   async function openSaveDialog() {
+    if (isViewMode()) return;
     showProjectDialog("save");
     if (STATIC_PWA_MODE) {
       renderOfflineSaveDialog();
@@ -4935,6 +5138,7 @@
   }
 
   async function openLoadDialog() {
+    if (isViewMode()) return;
     showProjectDialog("load");
     if (STATIC_PWA_MODE) {
       renderOfflineLoadDialog();
@@ -4948,6 +5152,7 @@
   }
 
   function openPngDialog() {
+    if (isViewMode()) return;
     showProjectDialog("png");
     renderPngDialog();
   }
@@ -5561,12 +5766,14 @@
   }
 
   function undo() {
+    if (isViewMode()) return;
     if (history.length <= 1) return;
     future.push(history.pop());
     restoreSnapshot(history[history.length - 1]);
   }
 
   function redo() {
+    if (isViewMode()) return;
     if (!future.length) return;
     const snapshot = future.pop();
     history.push(snapshot);
@@ -5734,7 +5941,7 @@
         id: node.id || uid("node"),
         name: String(node.name || "人物"),
         role: String(node.role || ""),
-        memo: String(node.memo || ""),
+        description: String(node.description ?? node.memo ?? ""),
         x: Number(node.x) || 0,
         y: Number(node.y) || 0,
         w: clamp(Number(node.w) || NODE_DEFAULT_WIDTH, 82, 260),

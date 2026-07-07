@@ -139,6 +139,13 @@ h1 {
   white-space: nowrap;
 }
 
+#viewModeBtn[aria-pressed="true"] {
+  border-color: rgba(20, 125, 114, 0.38);
+  background: #eef8f5;
+  color: var(--accent);
+  font-weight: 800;
+}
+
 .icon-button {
   width: 42px;
   min-width: 42px;
@@ -434,6 +441,49 @@ body[data-tools-collapsed="true"] .tools-toggle {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.65;
+}
+
+.readonly-details {
+  display: grid;
+  gap: 12px;
+}
+
+.readonly-mode-badge {
+  width: fit-content;
+  padding: 4px 9px;
+  border: 1px solid rgba(20, 125, 114, 0.26);
+  border-radius: 999px;
+  background: #eef8f5;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.detail-field {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.detail-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.detail-value {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.detail-value.is-empty {
+  color: var(--muted);
 }
 
 .form {
