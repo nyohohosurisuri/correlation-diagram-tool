@@ -684,6 +684,8 @@
     state.groups.forEach((group) => {
       const handle = renderGroupResizeHandle(group);
       if (handle) root.appendChild(handle);
+      const notchHandle = renderGroupNotchHandle(group);
+      if (notchHandle) root.appendChild(notchHandle);
     });
     appendSelectedLinkAnchorHandles(root);
   }
@@ -1028,6 +1030,47 @@
     };
   }
 
+  function groupNotchHandlePoint(group) {
+    const shape = normalizeGroupShape(group.shape);
+    const notchW = normalizeGroupNotchWidth(group);
+    const notchH = normalizeGroupNotchHeight(group);
+    if (shape === "l-top-left") return { x: group.x + notchW, y: group.y + notchH };
+    if (shape === "l-top-right") return { x: group.x + group.w - notchW, y: group.y + notchH };
+    if (shape === "l-bottom-left") return { x: group.x + notchW, y: group.y + group.h - notchH };
+    if (shape === "l-bottom-right") return { x: group.x + group.w - notchW, y: group.y + group.h - notchH };
+    return null;
+  }
+
+  function updateGroupNotchFromDrag(group, dragState, point) {
+    const shape = normalizeGroupShape(group.shape);
+    const minW = 24;
+    const minH = 24;
+    const maxW = Math.max(minW, group.w - 24);
+    const maxH = Math.max(minH, group.h - 24);
+    if (shape === "l-top-left") {
+      group.notchWidth = clamp(point.x - group.x, minW, maxW);
+      group.notchHeight = clamp(point.y - group.y, minH, maxH);
+      return;
+    }
+    if (shape === "l-top-right") {
+      group.notchWidth = clamp(group.x + group.w - point.x, minW, maxW);
+      group.notchHeight = clamp(point.y - group.y, minH, maxH);
+      return;
+    }
+    if (shape === "l-bottom-left") {
+      group.notchWidth = clamp(point.x - group.x, minW, maxW);
+      group.notchHeight = clamp(group.y + group.h - point.y, minH, maxH);
+      return;
+    }
+    if (shape === "l-bottom-right") {
+      group.notchWidth = clamp(group.x + group.w - point.x, minW, maxW);
+      group.notchHeight = clamp(group.y + group.h - point.y, minH, maxH);
+      return;
+    }
+    group.notchWidth = dragState.original.notchWidth;
+    group.notchHeight = dragState.original.notchHeight;
+  }
+
   function renderGroupResizeHandle(group) {
     if (!isSelected("group", group.id)) return null;
     const handleX = group.x + group.w - 24;
@@ -1063,6 +1106,48 @@
     }));
     g.appendChild(createSvg("path", {
       d: `M ${group.x + group.w - 18} ${group.y + group.h - 5} L ${group.x + group.w - 5} ${group.y + group.h - 18}`,
+      stroke: "#202329",
+      "stroke-width": 2,
+      "stroke-linecap": "round",
+      "pointer-events": "none"
+    }));
+    return g;
+  }
+
+  function renderGroupNotchHandle(group) {
+    if (!isSelected("group", group.id) || normalizeGroupShape(group.shape) === "rect") return null;
+    const point = groupNotchHandlePoint(group);
+    if (!point) return null;
+    const g = createSvg("g", {
+      "data-type": "group-notch",
+      "data-id": group.id,
+      class: "group-notch-handle-layer"
+    });
+    g.appendChild(createSvg("circle", {
+      cx: point.x,
+      cy: point.y,
+      r: 19,
+      fill: "transparent",
+      "pointer-events": "all",
+      "data-type": "group-notch",
+      "data-id": group.id,
+      class: "group-notch-hit"
+    }));
+    g.appendChild(createSvg("rect", {
+      x: point.x - 8,
+      y: point.y - 8,
+      width: 16,
+      height: 16,
+      rx: 4,
+      fill: "#ffffff",
+      stroke: group.color || "#202329",
+      "stroke-width": 2,
+      "data-type": "group-notch",
+      "data-id": group.id,
+      class: "group-notch-handle"
+    }));
+    g.appendChild(createSvg("path", {
+      d: `M ${point.x - 5} ${point.y} L ${point.x + 5} ${point.y} M ${point.x} ${point.y - 5} L ${point.x} ${point.y + 5}`,
       stroke: "#202329",
       "stroke-width": 2,
       "stroke-linecap": "round",
@@ -3933,6 +4018,28 @@
       return;
     }
 
+    if (target?.type === "group-notch") {
+      const group = getGroup(target.id);
+      if (!group || normalizeGroupShape(group.shape) === "rect") return;
+      selected = { type: "group", id: group.id };
+      mode = "select";
+      pendingConnection = null;
+      drag = {
+        type: "group-notch",
+        id: group.id,
+        pointerId: event.pointerId,
+        start: point,
+        startScreen: screen,
+        original: {
+          notchWidth: normalizeGroupNotchWidth(group),
+          notchHeight: normalizeGroupNotchHeight(group)
+        },
+        moved: false
+      };
+      render();
+      return;
+    }
+
     if (target?.type === "group-resize") {
       const group = getGroup(target.id);
       if (!group) return;
@@ -4190,6 +4297,11 @@
       group.w = clamp(drag.original.w + dx, GROUP_MIN_WIDTH, GROUP_MAX_WIDTH);
       group.h = clamp(drag.original.h + dy, GROUP_MIN_HEIGHT, GROUP_MAX_HEIGHT);
     }
+    if (drag.type === "group-notch") {
+      const group = getGroup(drag.id);
+      if (!group) return;
+      updateGroupNotchFromDrag(group, drag, point);
+    }
     if (drag.type === "text") {
       const textItem = getTextItem(drag.id);
       if (!textItem) return;
@@ -4274,8 +4386,8 @@
       render();
       return;
     }
-    if ((currentDrag.type === "node" || currentDrag.type === "group" || currentDrag.type === "group-resize" || currentDrag.type === "text" || currentDrag.type === "shape" || currentDrag.type === "image" || currentDrag.type === "legend" || currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor") && !currentDrag.moved) {
-      handleTapSelection(currentDrag.type === "group-resize" ? "group" : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor" ? "link" : currentDrag.type, currentDrag.id, event);
+    if ((currentDrag.type === "node" || currentDrag.type === "group" || currentDrag.type === "group-resize" || currentDrag.type === "group-notch" || currentDrag.type === "text" || currentDrag.type === "shape" || currentDrag.type === "image" || currentDrag.type === "legend" || currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor") && !currentDrag.moved) {
+      handleTapSelection(currentDrag.type === "group-resize" || currentDrag.type === "group-notch" ? "group" : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor" ? "link" : currentDrag.type, currentDrag.id, event);
       drag = null;
       render();
       return;
@@ -4347,6 +4459,13 @@
       if (group) {
         group.w = drag.original.w;
         group.h = drag.original.h;
+      }
+    }
+    if (drag?.type === "group-notch") {
+      const group = getGroup(drag.id);
+      if (group) {
+        group.notchWidth = drag.original.notchWidth;
+        group.notchHeight = drag.original.notchHeight;
       }
     }
     if (drag?.type === "text") {
