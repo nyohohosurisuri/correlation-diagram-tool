@@ -402,6 +402,8 @@
         gradient: defaultGradient(PALETTE[(state.groups.length + 2) % PALETTE.length]),
         titleFontSize: GROUP_TITLE_DEFAULT_FONT_SIZE,
         titleFontFamily: "default",
+        titleOutlineColor: "#ffffff",
+        titleOutlineWidth: 0,
         shape: "rect",
         notchWidth: 120,
         notchHeight: 80
@@ -960,6 +962,7 @@
   function renderGroup(group) {
     const active = isSelected("group", group.id);
     const titleFontSize = normalizeGroupTitleFontSize(group.titleFontSize);
+    const titleOutlineWidth = normalizeGroupTitleOutlineWidth(group.titleOutlineWidth);
     const shape = normalizeGroupShape(group.shape);
     const fillOpacity = normalizeGroupFillOpacity(group.fillOpacity);
     const titlePoint = groupTitlePoint(group, titleFontSize);
@@ -996,7 +999,11 @@
       fill: group.color,
       "font-size": titleFontSize,
       "font-family": groupTitleFontFamily(group.titleFontFamily),
-      "font-weight": 700
+      "font-weight": 700,
+      "paint-order": titleOutlineWidth > 0 ? "stroke" : "",
+      stroke: titleOutlineWidth > 0 ? normalizeColorValue(group.titleOutlineColor, "#ffffff") : "",
+      "stroke-width": titleOutlineWidth,
+      "stroke-linejoin": "round"
     }, group.title || "グループ"));
     return g;
   }
@@ -2887,6 +2894,16 @@
       scheduleChange();
     })));
     form.appendChild(field("フォント", groupTitleFontSelect(group)));
+    form.appendChild(collapsedFieldSection("グループ名のフチ", [
+      field("フチ色", swatches(normalizeColorValue(group.titleOutlineColor, "#ffffff"), (value) => {
+        group.titleOutlineColor = value;
+        scheduleChange();
+      }, ["#ffffff", "#202329", ...PALETTE])),
+      field("フチ幅", rangeWithValue(normalizeGroupTitleOutlineWidth(group.titleOutlineWidth), 0, 8, (value) => {
+        group.titleOutlineWidth = value;
+        scheduleChange();
+      }, 1, "px"))
+    ]));
     form.appendChild(field("形状", groupShapeSelect(group)));
     if (normalizeGroupShape(group.shape) !== "rect") {
       form.appendChild(field("切り欠き幅", rangeWithValue(normalizeGroupNotchWidth(group), 24, Math.max(24, group.w - 24), (value) => {
@@ -5719,6 +5736,8 @@
         gradient: normalizeGradient(group.gradient, group.color || PALETTE[2]),
         titleFontSize: normalizeGroupTitleFontSize(group.titleFontSize),
         titleFontFamily: normalizeGroupTitleFontId(group.titleFontFamily),
+        titleOutlineColor: normalizeColorValue(group.titleOutlineColor, "#ffffff"),
+        titleOutlineWidth: normalizeGroupTitleOutlineWidth(group.titleOutlineWidth),
         shape: normalizeGroupShape(group.shape),
         notchWidth: normalizeGroupNotchWidth(group),
         notchHeight: normalizeGroupNotchHeight(group)
@@ -5795,6 +5814,10 @@
   function groupTitleFontFamily(value) {
     const font = GROUP_TITLE_FONTS.find(([id]) => id === normalizeGroupTitleFontId(value));
     return font ? font[2] : GROUP_TITLE_FONTS[0][2];
+  }
+
+  function normalizeGroupTitleOutlineWidth(value) {
+    return clamp(Number(value) || 0, 0, 8);
   }
 
   function normalizeGroupShape(value) {
