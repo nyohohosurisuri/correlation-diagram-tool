@@ -4143,7 +4143,11 @@
         pointerId: event.pointerId,
         start: point,
         startScreen: screen,
-        original: { x: group.x, y: group.y },
+        original: {
+          x: group.x,
+          y: group.y,
+          containedItems: collectGroupDragItems(group)
+        },
         moved: false
       };
       render();
@@ -4327,8 +4331,7 @@
     if (drag.type === "group") {
       const group = getGroup(drag.id);
       if (!group) return;
-      group.x = drag.original.x + dx;
-      group.y = drag.original.y + dy;
+      applyGroupDrag(group, drag, dx, dy);
     }
     if (drag.type === "group-resize") {
       const group = getGroup(drag.id);
@@ -4487,11 +4490,7 @@
       }
     }
     if (drag?.type === "group") {
-      const group = getGroup(drag.id);
-      if (group) {
-        group.x = drag.original.x;
-        group.y = drag.original.y;
-      }
+      restoreGroupDrag(drag);
     }
     if (drag?.type === "group-resize") {
       const group = getGroup(drag.id);
@@ -7156,6 +7155,82 @@
       w: 2,
       h: 2
     };
+  }
+
+  function collectGroupDragItems(group) {
+    return {
+      nodes: state.nodes.filter((node) => itemBoundsCenterIsInGroup(group, node)).map(positionSnapshot),
+      groups: state.groups
+        .filter((candidate) => candidate.id !== group.id && itemBoundsCenterIsInGroup(group, candidate))
+        .map(positionSnapshot),
+      texts: state.texts.filter((textItem) => itemBoundsCenterIsInGroup(group, textItemBounds(textItem))).map(positionSnapshot),
+      shapes: state.shapes.filter((shape) => itemBoundsCenterIsInGroup(group, shapeBounds(shape))).map(positionSnapshot),
+      images: state.images.filter((imageItem) => itemBoundsCenterIsInGroup(group, imageBounds(imageItem))).map(positionSnapshot),
+      legends: state.legends.filter((legend) => itemBoundsCenterIsInGroup(group, legendBounds(legend))).map(positionSnapshot)
+    };
+  }
+
+  function itemBoundsCenterIsInGroup(group, itemOrBounds) {
+    if (!itemOrBounds) return false;
+    return pointInGroupShape(group, itemCenter(itemOrBounds));
+  }
+
+  function pointInGroupShape(group, point) {
+    if (!group || !point) return false;
+    if (point.x < group.x || point.x > group.x + group.w || point.y < group.y || point.y > group.y + group.h) {
+      return false;
+    }
+    const shape = normalizeGroupShape(group.shape);
+    if (shape === "rect") return true;
+    const notchW = normalizeGroupNotchWidth(group);
+    const notchH = normalizeGroupNotchHeight(group);
+    if (shape === "l-top-left") return point.x >= group.x + notchW || point.y >= group.y + notchH;
+    if (shape === "l-top-right") return point.x <= group.x + group.w - notchW || point.y >= group.y + notchH;
+    if (shape === "l-bottom-left") return point.x >= group.x + notchW || point.y <= group.y + group.h - notchH;
+    if (shape === "l-bottom-right") return point.x <= group.x + group.w - notchW || point.y <= group.y + group.h - notchH;
+    return true;
+  }
+
+  function positionSnapshot(item) {
+    return {
+      id: item.id,
+      x: item.x,
+      y: item.y
+    };
+  }
+
+  function applyGroupDrag(group, dragState, dx, dy) {
+    group.x = dragState.original.x + dx;
+    group.y = dragState.original.y + dy;
+    applyGroupContainedDragItems(dragState.original.containedItems, dx, dy);
+  }
+
+  function restoreGroupDrag(dragState) {
+    const group = getGroup(dragState.id);
+    if (group) {
+      group.x = dragState.original.x;
+      group.y = dragState.original.y;
+    }
+    applyGroupContainedDragItems(dragState.original.containedItems, 0, 0);
+  }
+
+  function applyGroupContainedDragItems(containedItems, dx, dy) {
+    if (!containedItems) return;
+    applyPositionSnapshots(containedItems.nodes, getNode, dx, dy);
+    applyPositionSnapshots(containedItems.groups, getGroup, dx, dy);
+    applyPositionSnapshots(containedItems.texts, getTextItem, dx, dy);
+    applyPositionSnapshots(containedItems.shapes, getShape, dx, dy);
+    applyPositionSnapshots(containedItems.images, getImageItem, dx, dy);
+    applyPositionSnapshots(containedItems.legends, getLegend, dx, dy);
+  }
+
+  function applyPositionSnapshots(snapshots, getter, dx, dy) {
+    (snapshots || []).forEach((snapshot) => {
+      const item = getter(snapshot.id);
+      if (!item) return;
+      item.x = snapshot.x + dx;
+      item.y = snapshot.y + dy;
+    });
   }
 
   function textItemBounds(textItem) {
