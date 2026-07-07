@@ -38,6 +38,14 @@
     ["mono", "等幅", "\"Consolas\", \"Menlo\", \"Yu Gothic UI\", monospace"]
   ];
   const GROUP_TITLE_FONT_IDS = new Set(GROUP_TITLE_FONTS.map(([id]) => id));
+  const GROUP_SHAPES = [
+    ["rect", "四角"],
+    ["l-top-left", "L字（左上切り欠き）"],
+    ["l-top-right", "L字（右上切り欠き）"],
+    ["l-bottom-left", "L字（左下切り欠き）"],
+    ["l-bottom-right", "L字（右下切り欠き）"]
+  ];
+  const GROUP_SHAPE_IDS = new Set(GROUP_SHAPES.map(([id]) => id));
   const LINK_AVOID_PADDING = 16;
   const LINK_ROUTE_OUTER_PADDING = 80;
   const LINK_TERMINAL_STUB = 22;
@@ -392,7 +400,10 @@
         color: PALETTE[(state.groups.length + 2) % PALETTE.length],
         gradient: defaultGradient(PALETTE[(state.groups.length + 2) % PALETTE.length]),
         titleFontSize: GROUP_TITLE_DEFAULT_FONT_SIZE,
-        titleFontFamily: "default"
+        titleFontFamily: "default",
+        shape: "rect",
+        notchWidth: 120,
+        notchHeight: 80
       };
       state.groups.push(group);
       selected = { type: "group", id: group.id };
@@ -945,31 +956,76 @@
   function renderGroup(group) {
     const active = isSelected("group", group.id);
     const titleFontSize = normalizeGroupTitleFontSize(group.titleFontSize);
+    const shape = normalizeGroupShape(group.shape);
+    const titlePoint = groupTitlePoint(group, titleFontSize);
     const g = createSvg("g", {
       "data-type": "group",
       "data-id": group.id,
       class: "node-handle"
     });
-    g.appendChild(createSvg("rect", {
-      x: group.x,
-      y: group.y,
-      width: group.w,
-      height: group.h,
-      rx: 8,
+    const groupShapeAttrs = {
       fill: objectGradientFill(group, "group-bg", 0.13),
       stroke: active ? "#202329" : objectGradientFill(group, "group"),
       "stroke-width": active ? 3 : 2,
-      "stroke-dasharray": "8 6"
-    }));
+      "stroke-dasharray": "8 6",
+      "stroke-linejoin": "round"
+    };
+    if (shape === "rect") {
+      g.appendChild(createSvg("rect", {
+        x: group.x,
+        y: group.y,
+        width: group.w,
+        height: group.h,
+        rx: 8,
+        ...groupShapeAttrs
+      }));
+    } else {
+      g.appendChild(createSvg("path", {
+        d: groupShapePath(group, shape),
+        ...groupShapeAttrs
+      }));
+    }
     g.appendChild(createSvg("text", {
-      x: group.x + 12,
-      y: group.y + 12 + titleFontSize * 0.82,
+      x: titlePoint.x,
+      y: titlePoint.y,
       fill: group.color,
       "font-size": titleFontSize,
       "font-family": groupTitleFontFamily(group.titleFontFamily),
       "font-weight": 700
     }, group.title || "グループ"));
     return g;
+  }
+
+  function groupShapePath(group, shape = normalizeGroupShape(group.shape)) {
+    const x = group.x;
+    const y = group.y;
+    const w = group.w;
+    const h = group.h;
+    const notchW = normalizeGroupNotchWidth(group);
+    const notchH = normalizeGroupNotchHeight(group);
+    if (shape === "l-top-left") {
+      return `M ${x + notchW} ${y} L ${x + w} ${y} L ${x + w} ${y + h} L ${x} ${y + h} L ${x} ${y + notchH} L ${x + notchW} ${y + notchH} Z`;
+    }
+    if (shape === "l-top-right") {
+      return `M ${x} ${y} L ${x + w - notchW} ${y} L ${x + w - notchW} ${y + notchH} L ${x + w} ${y + notchH} L ${x + w} ${y + h} L ${x} ${y + h} Z`;
+    }
+    if (shape === "l-bottom-left") {
+      return `M ${x} ${y} L ${x + w} ${y} L ${x + w} ${y + h} L ${x + notchW} ${y + h} L ${x + notchW} ${y + h - notchH} L ${x} ${y + h - notchH} Z`;
+    }
+    if (shape === "l-bottom-right") {
+      return `M ${x} ${y} L ${x + w} ${y} L ${x + w} ${y + h - notchH} L ${x + w - notchW} ${y + h - notchH} L ${x + w - notchW} ${y + h} L ${x} ${y + h} Z`;
+    }
+    return `M ${x} ${y} L ${x + w} ${y} L ${x + w} ${y + h} L ${x} ${y + h} Z`;
+  }
+
+  function groupTitlePoint(group, titleFontSize) {
+    const shape = normalizeGroupShape(group.shape);
+    const notchW = normalizeGroupNotchWidth(group);
+    const titleX = shape === "l-top-left" ? group.x + notchW + 12 : group.x + 12;
+    return {
+      x: Math.min(titleX, group.x + group.w - 12),
+      y: group.y + 12 + titleFontSize * 0.82
+    };
   }
 
   function renderGroupResizeHandle(group) {
@@ -2743,6 +2799,17 @@
       scheduleChange();
     })));
     form.appendChild(field("フォント", groupTitleFontSelect(group)));
+    form.appendChild(field("形状", groupShapeSelect(group)));
+    if (normalizeGroupShape(group.shape) !== "rect") {
+      form.appendChild(field("切り欠き幅", rangeWithValue(normalizeGroupNotchWidth(group), 24, Math.max(24, group.w - 24), (value) => {
+        group.notchWidth = value;
+        scheduleChange();
+      }, 4, "px")));
+      form.appendChild(field("切り欠き高さ", rangeWithValue(normalizeGroupNotchHeight(group), 24, Math.max(24, group.h - 24), (value) => {
+        group.notchHeight = value;
+        scheduleChange();
+      }, 4, "px")));
+    }
     form.appendChild(field("色", swatches(group.color, (value) => {
       group.color = value;
       scheduleChange();
@@ -3333,6 +3400,25 @@
     select.addEventListener("change", () => {
       group.titleFontFamily = select.value;
       scheduleChange();
+    });
+    return select;
+  }
+
+  function groupShapeSelect(group) {
+    const select = el("select");
+    GROUP_SHAPES.forEach(([value, label]) => {
+      const option = el("option", { value }, label);
+      option.selected = normalizeGroupShape(group.shape) === value;
+      select.appendChild(option);
+    });
+    select.addEventListener("change", () => {
+      group.shape = normalizeGroupShape(select.value);
+      if (group.shape !== "rect") {
+        group.notchWidth = normalizeGroupNotchWidth(group);
+        group.notchHeight = normalizeGroupNotchHeight(group);
+      }
+      scheduleChange();
+      render();
     });
     return select;
   }
@@ -5505,7 +5591,10 @@
         color: group.color || PALETTE[2],
         gradient: normalizeGradient(group.gradient, group.color || PALETTE[2]),
         titleFontSize: normalizeGroupTitleFontSize(group.titleFontSize),
-        titleFontFamily: normalizeGroupTitleFontId(group.titleFontFamily)
+        titleFontFamily: normalizeGroupTitleFontId(group.titleFontFamily),
+        shape: normalizeGroupShape(group.shape),
+        notchWidth: normalizeGroupNotchWidth(group),
+        notchHeight: normalizeGroupNotchHeight(group)
       })),
       texts: Array.isArray(value.texts) ? value.texts.map(normalizeTextItem) : [],
       shapes: Array.isArray(value.shapes) ? value.shapes.map(normalizeShape) : [],
@@ -5579,6 +5668,22 @@
   function groupTitleFontFamily(value) {
     const font = GROUP_TITLE_FONTS.find(([id]) => id === normalizeGroupTitleFontId(value));
     return font ? font[2] : GROUP_TITLE_FONTS[0][2];
+  }
+
+  function normalizeGroupShape(value) {
+    return GROUP_SHAPE_IDS.has(value) ? value : "rect";
+  }
+
+  function normalizeGroupNotchWidth(group) {
+    const width = Math.max(GROUP_MIN_WIDTH, Number(group?.w) || 280);
+    const fallback = Math.round(width * 0.42);
+    return clamp(Number(group?.notchWidth) || fallback, 24, Math.max(24, width - 24));
+  }
+
+  function normalizeGroupNotchHeight(group) {
+    const height = Math.max(GROUP_MIN_HEIGHT, Number(group?.h) || 180);
+    const fallback = Math.round(height * 0.42);
+    return clamp(Number(group?.notchHeight) || fallback, 24, Math.max(24, height - 24));
   }
 
   function normalizeColorValue(value, fallback) {
