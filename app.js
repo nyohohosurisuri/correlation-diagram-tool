@@ -405,6 +405,7 @@
         titleFontFamily: "default",
         titleOutlineColor: "#ffffff",
         titleOutlineWidth: 0,
+        moveContents: true,
         shape: "rect",
         notchWidth: 120,
         notchHeight: 80
@@ -2928,6 +2929,9 @@
       group.fillOpacity = clamp(Number(value) || 0, 0, 100) / 100;
       scheduleChange();
     }, 1, "%")));
+    form.appendChild(field("中の要素も移動", checkboxControl(group.moveContents !== false, (checked) => {
+      group.moveContents = checked;
+    })));
     form.appendChild(field("グラデーション", gradientControls(group)));
     form.appendChild(sizeControls(group, "group"));
     form.appendChild(el("div", { class: "divider" }));
@@ -4146,7 +4150,7 @@
         original: {
           x: group.x,
           y: group.y,
-          containedItems: collectGroupDragItems(group)
+          containedItems: group.moveContents !== false ? collectGroupDragItems(group) : null
         },
         moved: false
       };
@@ -5753,6 +5757,7 @@
         titleTextColor: typeof group.titleTextColor === "string" ? group.titleTextColor : "",
         titleOutlineColor: normalizeColorValue(group.titleOutlineColor, "#ffffff"),
         titleOutlineWidth: normalizeGroupTitleOutlineWidth(group.titleOutlineWidth),
+        moveContents: group.moveContents !== false,
         shape: normalizeGroupShape(group.shape),
         notchWidth: normalizeGroupNotchWidth(group),
         notchHeight: normalizeGroupNotchHeight(group)
