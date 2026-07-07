@@ -656,6 +656,39 @@ body[data-tools-collapsed="true"] .tools-toggle {
   font-variant-numeric: tabular-nums;
 }
 
+.node-size-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.node-size-presets button {
+  display: grid;
+  gap: 3px;
+  min-height: 48px;
+  align-content: center;
+  padding: 7px 5px;
+}
+
+.node-size-presets button.is-active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.node-size-label {
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.node-size-value {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  opacity: 0.88;
+}
+
 .endpoint-list {
   display: grid;
   gap: 5px;

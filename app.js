@@ -17,6 +17,11 @@
   const PNG_MAX_PIXELS = 64000000;
   const NODE_DEFAULT_WIDTH = 120;
   const NODE_DEFAULT_HEIGHT = 130;
+  const NODE_SIZE_PRESETS = [
+    { id: "small", label: "小", w: 120, h: 130 },
+    { id: "medium", label: "中", w: 150, h: 160 },
+    { id: "large", label: "大", w: 170, h: 180 }
+  ];
   const TEXT_DEFAULT_WIDTH = 180;
   const SHAPE_DEFAULT_WIDTH = 120;
   const SHAPE_DEFAULT_HEIGHT = 90;
@@ -3130,6 +3135,7 @@
     form.appendChild(field("属性マーク", nodeMarkControls(node)));
     form.appendChild(field("画像", imageUploadControl(node)));
     if (node.image) form.appendChild(imageCropControls(node));
+    form.appendChild(field("サイズ", nodeSizePresetControls(node)));
     form.appendChild(sizeControls(node, "node"));
     form.appendChild(el("div", { class: "divider" }));
     form.appendChild(actionRow(() => duplicateNode(node), deleteSelected));
@@ -4286,6 +4292,28 @@
       scheduleChange();
     })));
     return row;
+  }
+
+  function nodeSizePresetControls(node) {
+    const wrap = el("div", { class: "node-size-presets" });
+    NODE_SIZE_PRESETS.forEach((preset) => {
+      const active = Math.round(Number(node.w) || 0) === preset.w && Math.round(Number(node.h) || 0) === preset.h;
+      const button = el("button", {
+        type: "button",
+        class: active ? "is-active" : "",
+        "aria-pressed": active ? "true" : "false"
+      });
+      button.appendChild(el("span", { class: "node-size-label" }, preset.label));
+      button.appendChild(el("span", { class: "node-size-value" }, `${preset.w}×${preset.h}px`));
+      button.addEventListener("click", () => {
+        node.w = preset.w;
+        node.h = preset.h;
+        commitChange();
+        render();
+      });
+      wrap.appendChild(button);
+    });
+    return wrap;
   }
 
   function actionRow(onDuplicate, onDelete) {
