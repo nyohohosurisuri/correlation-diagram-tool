@@ -2926,9 +2926,7 @@
     const wrap = el("div", { class: "readonly-details" });
     wrap.appendChild(el("div", { class: "readonly-mode-badge" }, "閲覧モード"));
     if (selected.type === "node") {
-      wrap.appendChild(detailRow("種別", "人物"));
-      wrap.appendChild(detailRow("名前", item.name || "人物"));
-      wrap.appendChild(detailRow("肩書き", item.role || ""));
+      wrap.appendChild(renderReadonlyNodeProfile(item));
       wrap.appendChild(detailRow("説明文", nodeDescription(item)));
       wrap.appendChild(detailRow("属性マーク", nodeMarkLabels(item.marks)));
     }
@@ -2963,6 +2961,71 @@
       wrap.appendChild(detailRow("項目", legendDetailText(item)));
     }
     inspectorContent.appendChild(wrap);
+  }
+
+  function renderReadonlyNodeProfile(node) {
+    const card = el("div", { class: "readonly-profile-card" });
+    const avatar = el("div", { class: "readonly-profile-avatar" });
+    const imageSrc = resolveImageSource(node.image);
+    if (imageSrc) {
+      const image = el("img", {
+        class: "readonly-profile-image",
+        src: imageSrc,
+        alt: node.name || "人物",
+        style: readonlyProfileImageStyle(node)
+      });
+      avatar.appendChild(image);
+    } else {
+      avatar.appendChild(el("span", { class: "readonly-profile-placeholder" }, "？"));
+    }
+
+    const body = el("div", { class: "readonly-profile-body" });
+    body.appendChild(el("div", { class: "readonly-profile-kind" }, "人物プロフィール"));
+    body.appendChild(el("div", { class: "readonly-profile-role" }, String(node.role || "肩書き未設定")));
+    body.appendChild(el("div", { class: "readonly-profile-name" }, String(node.name || "人物")));
+    const marks = readonlyProfileMarks(node);
+    if (marks) body.appendChild(marks);
+    card.appendChild(avatar);
+    card.appendChild(body);
+    return card;
+  }
+
+  function readonlyProfileImageStyle(node) {
+    const box = { x: 0, y: 0, w: 104, h: 104 };
+    const draw = computeImageDraw(node, box);
+    if (draw.preserveAspectRatio) {
+      return "inset:0;width:100%;height:100%;object-fit:cover;";
+    }
+    return [
+      `left:${formatCssNumber(draw.x)}px`,
+      `top:${formatCssNumber(draw.y)}px`,
+      `width:${formatCssNumber(draw.w)}px`,
+      `height:${formatCssNumber(draw.h)}px`
+    ].join(";");
+  }
+
+  function formatCssNumber(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "0";
+    return String(Math.round(number * 1000) / 1000);
+  }
+
+  function readonlyProfileMarks(node) {
+    const marks = normalizeNodeMarks(node.marks)
+      .map((id) => NODE_MARKS.find((mark) => mark.id === id))
+      .filter(Boolean);
+    if (!marks.length) return null;
+    const wrap = el("div", { class: "readonly-profile-marks" });
+    marks.forEach((mark) => {
+      const badge = el("span", {
+        class: "readonly-profile-mark",
+        title: mark.label,
+        style: `background:${mark.color}`
+      });
+      badge.appendChild(el("span", {}, mark.label.slice(0, 1)));
+      wrap.appendChild(badge);
+    });
+    return wrap;
   }
 
   function detailRow(label, value) {

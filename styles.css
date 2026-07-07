@@ -459,6 +459,98 @@ body[data-tools-collapsed="true"] .tools-toggle {
   font-weight: 800;
 }
 
+.readonly-profile-card {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #ffffff, #f8faf8);
+  box-shadow: 0 8px 18px rgba(27, 36, 44, 0.07);
+}
+
+.readonly-profile-avatar {
+  position: relative;
+  display: grid;
+  width: 104px;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(216, 222, 216, 0.95);
+  border-radius: 10px;
+  background: #f3f7f5;
+}
+
+.readonly-profile-image {
+  position: absolute;
+  display: block;
+  max-width: none;
+  object-fit: fill;
+}
+
+.readonly-profile-placeholder {
+  color: var(--accent);
+  font-size: 42px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.readonly-profile-body {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.readonly-profile-kind {
+  width: fit-content;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #eef8f5;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.readonly-profile-role {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.readonly-profile-name {
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.25;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.readonly-profile-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-top: 2px;
+}
+
+.readonly-profile-mark {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 1px 3px rgba(31, 38, 43, 0.18);
+}
+
 .detail-field {
   display: grid;
   gap: 5px;
