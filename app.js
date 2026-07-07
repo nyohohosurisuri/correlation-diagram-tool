@@ -29,6 +29,9 @@
   const GROUP_MAX_WIDTH = 1600;
   const GROUP_MAX_HEIGHT = 1200;
   const GROUP_TITLE_DEFAULT_FONT_SIZE = 15;
+  const DEFAULT_SETTINGS = {
+    groupMoveContents: false
+  };
   const GROUP_TITLE_FONTS = [
     ["default", "既定", "\"Yu Gothic UI\", \"Hiragino Sans\", \"Meiryo\", system-ui, sans-serif"],
     ["gothic", "ゴシック", "\"Yu Gothic\", \"Yu Gothic UI\", \"Hiragino Kaku Gothic ProN\", \"Meiryo\", sans-serif"],
@@ -168,6 +171,7 @@
   const undoBtn = document.querySelector("#undoBtn");
   const redoBtn = document.querySelector("#redoBtn");
   const viewModeBtn = document.querySelector("#viewModeBtn");
+  const detailSettingsBtn = document.querySelector("#detailSettingsBtn");
   const zoomLabel = document.querySelector("#zoomLabel");
   ensureCropEditorMarkup();
   const cropEditor = document.querySelector("#cropEditor");
@@ -327,7 +331,8 @@
           color: "#61a875",
           gradient: defaultGradient("#61a875"),
           titleFontSize: GROUP_TITLE_DEFAULT_FONT_SIZE,
-          titleFontFamily: "default"
+          titleFontFamily: "mincho",
+          titleTextColor: "#202329"
         }
       ],
       texts: [],
@@ -335,6 +340,7 @@
       legends: [],
       images: [],
       imageAssets: [],
+      settings: { ...DEFAULT_SETTINGS },
       viewport: {
         x: 0,
         y: 0,
@@ -353,6 +359,7 @@
       legends: [],
       images: [],
       imageAssets: [],
+      settings: { ...DEFAULT_SETTINGS },
       viewport: {
         x: 0,
         y: 0,
@@ -421,10 +428,10 @@
         fillOpacity: 0.13,
         gradient: defaultGradient(PALETTE[(state.groups.length + 2) % PALETTE.length]),
         titleFontSize: GROUP_TITLE_DEFAULT_FONT_SIZE,
-        titleFontFamily: "default",
+        titleFontFamily: "mincho",
+        titleTextColor: "#202329",
         titleOutlineColor: "#ffffff",
         titleOutlineWidth: 0,
-        moveContents: true,
         shape: "rect",
         notchWidth: 120,
         notchHeight: 80
@@ -515,6 +522,7 @@
     alignVerticalBtn?.addEventListener("click", () => alignSelectedNodes("vertical"));
     alignSpacingInput?.addEventListener("input", () => updateAlignControls());
     viewModeBtn?.addEventListener("click", toggleViewMode);
+    detailSettingsBtn?.addEventListener("click", openDetailSettingsDialog);
     document.querySelector("#centerBtn").addEventListener("click", () => {
       centerViewport();
       render();
@@ -668,6 +676,15 @@
     if (connectBtn) connectBtn.setAttribute("aria-pressed", mode === "connect" ? "true" : "false");
     if (undoBtn) undoBtn.disabled = viewing || history.length <= 1;
     if (redoBtn) redoBtn.disabled = viewing || future.length === 0;
+  }
+
+  function appSettings() {
+    state.settings = normalizeSettings(state.settings);
+    return state.settings;
+  }
+
+  function groupMoveContentsEnabled() {
+    return appSettings().groupMoveContents === true;
   }
 
   function updateToolsToggle() {
@@ -3100,9 +3117,6 @@
       group.fillOpacity = clamp(Number(value) || 0, 0, 100) / 100;
       scheduleChange();
     }, 1, "%")));
-    form.appendChild(field("中の要素も移動", checkboxControl(group.moveContents !== false, (checked) => {
-      group.moveContents = checked;
-    })));
     form.appendChild(field("グラデーション", gradientControls(group)));
     form.appendChild(sizeControls(group, "group"));
     form.appendChild(el("div", { class: "divider" }));
@@ -3650,17 +3664,19 @@
     return wrap;
   }
 
-  function checkboxControl(checked, onChange) {
+  function checkboxControl(checked, onChange, labelText = "") {
     const label = el("label", { class: "check-control" });
     const input = el("input", { type: "checkbox" });
+    const text = el("span", {}, labelText || (checked ? "オン" : "オフ"));
     input.checked = checked;
     input.addEventListener("change", () => {
       onChange(input.checked);
+      if (!labelText) text.textContent = input.checked ? "オン" : "オフ";
       commitChange();
       render();
     });
     label.appendChild(input);
-    label.appendChild(el("span", {}, checked ? "オン" : "オフ"));
+    label.appendChild(text);
     return label;
   }
 
@@ -4342,7 +4358,7 @@
         original: {
           x: group.x,
           y: group.y,
-          containedItems: group.moveContents !== false ? collectGroupDragItems(group) : null
+          containedItems: groupMoveContentsEnabled() ? collectGroupDragItems(group) : null
         },
         moved: false
       };
@@ -5157,16 +5173,40 @@
     renderPngDialog();
   }
 
+  function openDetailSettingsDialog() {
+    if (isViewMode()) return;
+    showProjectDialog("settings");
+    renderDetailSettingsDialog();
+  }
+
   function showProjectDialog(mode) {
     projectDialogMode = mode;
-    projectDialogTitle.textContent = mode === "save" ? "PCに保存" : mode === "load" ? "PCから読込" : "PNG書き出し";
+    projectDialogTitle.textContent = dialogTitle(mode);
     projectDialog.setAttribute("aria-hidden", "false");
     projectDialogContent.replaceChildren(el("div", { class: "project-message" }, "読み込み中..."));
+  }
+
+  function dialogTitle(mode) {
+    if (mode === "save") return "PCに保存";
+    if (mode === "load") return "PCから読込";
+    if (mode === "settings") return "詳細設定";
+    return "PNG書き出し";
   }
 
   function closeProjectDialog() {
     projectDialog.setAttribute("aria-hidden", "true");
     projectDialogContent.replaceChildren();
+  }
+
+  function renderDetailSettingsDialog() {
+    projectDialogTitle.textContent = "詳細設定";
+    projectDialogContent.replaceChildren();
+    const form = el("div", { class: "project-form" });
+    form.appendChild(field("グループ", checkboxControl(groupMoveContentsEnabled(), (checked) => {
+      appSettings().groupMoveContents = checked;
+    }, "グループを動かす時、中の要素も一緒に移動")));
+    form.appendChild(el("p", { class: "project-note" }, "この設定は全グループ共通です。オフの場合、グループ枠だけを移動します。"));
+    projectDialogContent.appendChild(form);
   }
 
   function renderOfflineSaveDialog() {
@@ -5789,6 +5829,7 @@
     state.shapes = parsed.shapes || [];
     state.legends = parsed.legends || [];
     state.images = parsed.images || [];
+    state.settings = normalizeSettings(parsed.settings);
     if (!Array.isArray(state.imageAssets)) state.imageAssets = [];
     migrateEmbeddedImagesToAssets(state);
     selected = null;
@@ -5808,7 +5849,8 @@
       texts: state.texts,
       shapes: state.shapes,
       legends: state.legends,
-      images: state.images
+      images: state.images,
+      settings: normalizeSettings(state.settings)
     });
   }
 
@@ -5824,6 +5866,7 @@
       legends: sourceState.legends,
       images: sourceState.images,
       imageAssets: (sourceState.imageAssets || []).filter((asset) => usedIds.has(asset.id)),
+      settings: normalizeSettings(sourceState.settings),
       viewport: sourceState.viewport
     };
   }
@@ -5975,10 +6018,9 @@
         gradient: normalizeGradient(group.gradient, group.color || PALETTE[2]),
         titleFontSize: normalizeGroupTitleFontSize(group.titleFontSize),
         titleFontFamily: normalizeGroupTitleFontId(group.titleFontFamily),
-        titleTextColor: typeof group.titleTextColor === "string" ? group.titleTextColor : "",
+        titleTextColor: typeof group.titleTextColor === "string" ? group.titleTextColor : "#202329",
         titleOutlineColor: normalizeColorValue(group.titleOutlineColor, "#ffffff"),
         titleOutlineWidth: normalizeGroupTitleOutlineWidth(group.titleOutlineWidth),
-        moveContents: group.moveContents !== false,
         shape: normalizeGroupShape(group.shape),
         notchWidth: normalizeGroupNotchWidth(group),
         notchHeight: normalizeGroupNotchHeight(group)
@@ -5988,6 +6030,7 @@
       legends: Array.isArray(value.legends) ? value.legends.map(normalizeLegend) : [],
       images: Array.isArray(value.images) ? value.images.map(normalizeInsertedImage) : [],
       imageAssets: normalizeImageAssets(value.imageAssets),
+      settings: normalizeSettings(value.settings),
       viewport: value.viewport || { x: 0, y: 0, scale: 1 }
     };
     migrateEmbeddedImagesToAssets(normalized);
@@ -6049,7 +6092,7 @@
   }
 
   function normalizeGroupTitleFontId(value) {
-    return GROUP_TITLE_FONT_IDS.has(value) ? value : "default";
+    return GROUP_TITLE_FONT_IDS.has(value) ? value : "mincho";
   }
 
   function groupTitleFontFamily(value) {
@@ -6058,7 +6101,15 @@
   }
 
   function groupTitleTextColor(group) {
-    return normalizeColorValue(group?.titleTextColor, group?.color || PALETTE[2]);
+    return normalizeColorValue(group?.titleTextColor, "#202329");
+  }
+
+  function normalizeSettings(settings) {
+    const source = settings && typeof settings === "object" ? settings : {};
+    return {
+      ...DEFAULT_SETTINGS,
+      groupMoveContents: source.groupMoveContents === true
+    };
   }
 
   function normalizeGroupTitleOutlineWidth(value) {
