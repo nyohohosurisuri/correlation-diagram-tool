@@ -168,6 +168,7 @@
   let selected = null;
   let multiSelectedNodeIds = new Set();
   let inspectorOpen = false;
+  let inspectorCollapseState = new Map();
   let mode = "select";
   let pendingConnection = null;
   let drag = null;
@@ -996,7 +997,7 @@
     g.appendChild(createSvg("text", {
       x: titlePoint.x,
       y: titlePoint.y,
-      fill: group.color,
+      fill: groupTitleTextColor(group),
       "font-size": titleFontSize,
       "font-family": groupTitleFontFamily(group.titleFontFamily),
       "font-weight": 700,
@@ -2894,7 +2895,11 @@
       scheduleChange();
     })));
     form.appendChild(field("フォント", groupTitleFontSelect(group)));
-    form.appendChild(collapsedFieldSection("グループ名のフチ", [
+    form.appendChild(collapsedFieldSection("グループ名の色/フチ", [
+      field("文字色", swatches(groupTitleTextColor(group), (value) => {
+        group.titleTextColor = value;
+        scheduleChange();
+      }, ["#ffffff", "#202329", ...PALETTE])),
       field("フチ色", swatches(normalizeColorValue(group.titleOutlineColor, "#ffffff"), (value) => {
         group.titleOutlineColor = value;
         scheduleChange();
@@ -3407,13 +3412,23 @@
     return wrapper;
   }
 
-  function collapsedFieldSection(summaryText, controls) {
+  function collapsedFieldSection(summaryText, controls, stateKey = summaryText) {
+    const collapseKey = inspectorCollapseKey(stateKey);
     const details = el("details", { class: "field-collapse" });
+    details.open = inspectorCollapseState.get(collapseKey) === true;
+    details.addEventListener("toggle", () => {
+      inspectorCollapseState.set(collapseKey, details.open);
+    });
     details.appendChild(el("summary", {}, summaryText));
     const body = el("div", { class: "field-collapse-body" });
     controls.forEach((control) => body.appendChild(control));
     details.appendChild(body);
     return details;
+  }
+
+  function inspectorCollapseKey(stateKey) {
+    const selectionKey = selected ? `${selected.type}:${selected.id}` : "none";
+    return `${selectionKey}:${stateKey}`;
   }
 
   function textInput(value, onInput) {
@@ -5736,6 +5751,7 @@
         gradient: normalizeGradient(group.gradient, group.color || PALETTE[2]),
         titleFontSize: normalizeGroupTitleFontSize(group.titleFontSize),
         titleFontFamily: normalizeGroupTitleFontId(group.titleFontFamily),
+        titleTextColor: typeof group.titleTextColor === "string" ? group.titleTextColor : "",
         titleOutlineColor: normalizeColorValue(group.titleOutlineColor, "#ffffff"),
         titleOutlineWidth: normalizeGroupTitleOutlineWidth(group.titleOutlineWidth),
         shape: normalizeGroupShape(group.shape),
@@ -5814,6 +5830,10 @@
   function groupTitleFontFamily(value) {
     const font = GROUP_TITLE_FONTS.find(([id]) => id === normalizeGroupTitleFontId(value));
     return font ? font[2] : GROUP_TITLE_FONTS[0][2];
+  }
+
+  function groupTitleTextColor(group) {
+    return normalizeColorValue(group?.titleTextColor, group?.color || PALETTE[2]);
   }
 
   function normalizeGroupTitleOutlineWidth(value) {
