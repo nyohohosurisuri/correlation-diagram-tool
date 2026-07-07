@@ -80,6 +80,20 @@
     "#6b7280",
     "#ffffff"
   ];
+  const TEXT_BACKGROUND_COLORS = [
+    "#202329",
+    "#111827",
+    "#000000",
+    "#e53935",
+    "#1e88e5",
+    "#43a047",
+    "#fdd835",
+    "#ffffff",
+    "#f9faf7",
+    "#eef4ef",
+    "#fff2ef",
+    ...PALETTE
+  ];
   const ANCHOR_OPTIONS = [
     ["auto", "自動"],
     ["top-left", "左上"],
@@ -1520,7 +1534,7 @@
         width: box.width + 4,
         height: box.height + 4,
         rx: 6,
-        fill: "rgba(20, 125, 114, 0.08)",
+        fill: "transparent",
         stroke: "#147d72",
         "stroke-width": 1.5,
         "stroke-dasharray": "5 4",
@@ -3082,7 +3096,7 @@
     form.appendChild(field("背景色", optionalSwatches(textItem.backgroundColor || "", (value) => {
       textItem.backgroundColor = value;
       scheduleChange();
-    }, ["#ffffff", "#f9faf7", "#eef4ef", "#fff2ef", ...PALETTE])));
+    }, TEXT_BACKGROUND_COLORS)));
     form.appendChild(field("枠線色", optionalSwatches(textItem.borderColor || "", (value) => {
       textItem.borderColor = value;
       if (value && !textItem.borderWidth) textItem.borderWidth = 1;
