@@ -583,6 +583,17 @@ body[data-tools-collapsed="true"] .tools-toggle {
   gap: 14px;
 }
 
+.bulk-node-edit-summary {
+  padding: 10px;
+  border: 1px solid rgba(20, 125, 114, 0.35);
+  border-radius: var(--radius);
+  background: #eef8f5;
+  color: #12655d;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .field {
   display: grid;
   gap: 6px;
@@ -1482,6 +1493,7 @@ body[data-tools-collapsed="true"] .tools-toggle {
   .inspector .field:has(textarea),
   .inspector .field:has(.endpoint-list),
   .inspector .field-row,
+  .inspector .bulk-node-edit-summary,
   .inspector .divider {
     grid-column: 1 / -1;
   }

@@ -739,9 +739,10 @@
   function render() {
     cancelScheduledRenders();
     const currentSelection = selected ? getSelectedItem() : null;
+    const multiNodeCount = selectedAlignmentNodes().length;
     document.body.dataset.selection = currentSelection ? selected.type : "none";
     document.body.dataset.mode = mode;
-    document.body.dataset.inspectorOpen = inspectorOpen || mode === "connect" || (isViewMode() && currentSelection) ? "true" : "false";
+    document.body.dataset.inspectorOpen = inspectorOpen || multiNodeCount >= 2 || mode === "connect" || (isViewMode() && currentSelection) ? "true" : "false";
     document.body.dataset.toolsCollapsed = toolsCollapsed ? "true" : "false";
     renderDiagram();
     renderSelectionList();
@@ -3028,6 +3029,11 @@
       renderReadonlyInspector(item);
       return;
     }
+    const multiNodes = selectedAlignmentNodes();
+    if (multiNodes.length >= 2) {
+      renderMultiNodeInspector(multiNodes);
+      return;
+    }
     if (!item || !inspectorOpen) {
       inspectorContent.appendChild(el("div", { class: "empty-state" }, "未選択"));
       return;
@@ -3254,6 +3260,102 @@
     form.appendChild(el("div", { class: "divider" }));
     form.appendChild(actionRow(() => duplicateNode(node), deleteSelected));
     inspectorContent.appendChild(form);
+  }
+
+  function renderMultiNodeInspector(nodes) {
+    const form = el("div", { class: "form bulk-node-edit-form" });
+    const totalSelected = multiSelectedCount();
+    const additionalSelection = totalSelected > nodes.length ? `（人物以外 ${totalSelected - nodes.length}件は対象外）` : "";
+    form.appendChild(el("div", { class: "bulk-node-edit-summary" }, `人物 ${nodes.length}人に一括適用${additionalSelection}`));
+    form.appendChild(field("色", swatches(sharedNodeColor(nodes), (value) => {
+      nodes.forEach((node) => {
+        node.color = value;
+      });
+    })));
+    form.appendChild(field("グラデーション", multiNodeGradientControls(nodes)));
+    inspectorContent.appendChild(form);
+  }
+
+  function sharedNodeColor(nodes) {
+    return sharedValue(nodes.map((node) => String(node.color || PALETTE[0]).toLowerCase()));
+  }
+
+  function multiNodeGradientControls(nodes) {
+    const gradients = nodes.map((node) => normalizeGradient(node.gradient, node.color || PALETTE[0]));
+    const enabledCount = gradients.filter((gradient) => gradient.enabled).length;
+    const enabledState = enabledCount === gradients.length ? "all" : enabledCount ? "mixed" : "none";
+    const wrap = el("div", { class: "gradient-controls" });
+    wrap.appendChild(mixedCheckboxControl(enabledState, (checked) => {
+      nodes.forEach((node) => {
+        node.gradient = {
+          ...normalizeGradient(node.gradient, node.color || PALETTE[0]),
+          enabled: checked
+        };
+      });
+    }, {
+      all: "オン",
+      mixed: "一部オン",
+      none: "オフ"
+    }));
+    if (enabledState === "none") return wrap;
+
+    const options = el("div", { class: "gradient-options" });
+    const secondColor = sharedValue(gradients.map((gradient) => String(gradient.color || "").toLowerCase()));
+    options.appendChild(field("2色目", swatches(secondColor, (value) => {
+      nodes.forEach((node) => {
+        node.gradient = {
+          ...normalizeGradient(node.gradient, node.color || PALETTE[0]),
+          color: value
+        };
+      });
+    }, ["#ffffff", "#202329", ...PALETTE])));
+
+    const sharedDirection = sharedValue(gradients.map((gradient) => gradient.direction));
+    const directionSelect = el("select");
+    if (!sharedDirection) {
+      const mixedOption = el("option", { value: "" }, "混在");
+      mixedOption.selected = true;
+      directionSelect.appendChild(mixedOption);
+    }
+    GRADIENT_DIRECTIONS.forEach(([value, label]) => {
+      const option = el("option", { value }, label);
+      option.selected = sharedDirection === value;
+      directionSelect.appendChild(option);
+    });
+    directionSelect.addEventListener("change", () => {
+      if (!GRADIENT_DIRECTION_IDS.has(directionSelect.value)) return;
+      nodes.forEach((node) => {
+        node.gradient = {
+          ...normalizeGradient(node.gradient, node.color || PALETTE[0]),
+          direction: directionSelect.value
+        };
+      });
+      commitChange();
+    });
+    options.appendChild(field("方向", directionSelect));
+    wrap.appendChild(options);
+    return wrap;
+  }
+
+  function mixedCheckboxControl(state, onChange, labels) {
+    const label = el("label", { class: "check-control" });
+    const input = el("input", { type: "checkbox" });
+    const text = el("span", {}, labels[state] || "オフ");
+    input.checked = state === "all";
+    input.indeterminate = state === "mixed";
+    input.addEventListener("change", () => {
+      onChange(input.checked);
+      commitChange();
+    });
+    label.appendChild(input);
+    label.appendChild(text);
+    return label;
+  }
+
+  function sharedValue(values) {
+    if (!values.length) return "";
+    const [first, ...rest] = values;
+    return rest.every((value) => value === first) ? first : "";
   }
 
   function renderGroupInspector(group) {
