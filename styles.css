@@ -698,6 +698,28 @@ body[data-tools-collapsed="true"] .tools-toggle {
   background: #fff;
 }
 
+.endpoint-search {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #f9faf7;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.endpoint-search:focus {
+  border-color: var(--accent);
+  outline: 2px solid rgba(20, 125, 114, 0.16);
+  outline-offset: 1px;
+}
+
+.endpoint-search:disabled {
+  color: var(--muted);
+  background: #f0f2ef;
+}
+
 .endpoint-connected-list,
 .endpoint-candidate-list {
   display: grid;
@@ -1696,6 +1718,12 @@ body[data-tools-collapsed="true"] .tools-toggle {
 
   .endpoint-list {
     display: block;
+  }
+
+  .endpoint-search {
+    min-height: 40px;
+    margin-bottom: 6px;
+    font-size: 14px;
   }
 
   .endpoint-connected-list,

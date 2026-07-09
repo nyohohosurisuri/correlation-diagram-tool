@@ -3656,6 +3656,12 @@
     const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
     const connected = current.map((id) => candidateById.get(id)).filter(Boolean);
     const unconnected = candidates.filter((candidate) => !current.includes(candidate.id));
+    const searchInput = el("input", {
+      type: "search",
+      class: "endpoint-search",
+      placeholder: "名前・肩書きで検索"
+    });
+    wrap.appendChild(searchInput);
     const connectedWrap = el("div", { class: "endpoint-connected-list" });
     if (connected.length) {
       connected.forEach((candidate) => {
@@ -3669,11 +3675,31 @@
       const details = el("details", { class: "endpoint-candidates" });
       details.appendChild(el("summary", {}, `候補を表示（${unconnected.length}件）`));
       const candidateWrap = el("div", { class: "endpoint-candidate-list" });
+      const candidateRows = [];
       unconnected.forEach((candidate) => {
-        candidateWrap.appendChild(endpointOptionRow(link, side, candidate, false, current, opposite));
+        const row = endpointOptionRow(link, side, candidate, false, current, opposite);
+        candidateRows.push(row);
+        candidateWrap.appendChild(row);
       });
+      const filterEmpty = el("div", { class: "endpoint-empty endpoint-filter-empty", hidden: true }, "該当する候補はありません");
+      candidateWrap.appendChild(filterEmpty);
       details.appendChild(candidateWrap);
       wrap.appendChild(details);
+      searchInput.addEventListener("input", () => {
+        const query = normalizeEndpointSearchQuery(searchInput.value);
+        if (query) details.open = true;
+        let visibleCount = 0;
+        candidateRows.forEach((row) => {
+          const matched = !query || row.dataset.searchText.includes(query);
+          row.hidden = !matched;
+          if (matched) visibleCount += 1;
+        });
+        filterEmpty.hidden = visibleCount > 0;
+      });
+    }
+    if (!unconnected.length) {
+      searchInput.disabled = true;
+      searchInput.placeholder = "候補はありません";
     }
     return wrap;
   }
@@ -3684,6 +3710,7 @@
     const row = el("div", {
       class: `endpoint-option${!checked && lockedOppositeOnlyChoice ? " is-disabled" : ""}`
     });
+    row.dataset.searchText = endpointSearchText(candidate);
     const label = el("label", { class: "endpoint-choice" });
     const input = el("input", { type: "checkbox" });
     input.checked = checked;
@@ -3698,6 +3725,23 @@
       row.appendChild(endpointAnchorControls(link, side, candidate.id));
     }
     return row;
+  }
+
+  function endpointSearchText(candidate) {
+    const endpoint = getConnectionEndpoint(candidate.id);
+    const item = endpoint?.item || {};
+    return normalizeEndpointSearchQuery([
+      candidate.label,
+      endpoint?.label,
+      endpoint?.type,
+      item.name,
+      item.role,
+      item.title
+    ].filter(Boolean).join(" "));
+  }
+
+  function normalizeEndpointSearchQuery(value) {
+    return String(value || "").trim().toLocaleLowerCase();
   }
 
   function endpointAnchorControls(link, side, endpointId) {
