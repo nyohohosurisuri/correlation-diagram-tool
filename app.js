@@ -1113,7 +1113,7 @@
     const titleOutlineWidth = normalizeGroupTitleOutlineWidth(group.titleOutlineWidth);
     const shape = normalizeGroupShape(group.shape);
     const fillOpacity = normalizeGroupFillOpacity(group.fillOpacity);
-    const titlePoint = groupTitlePoint(group, titleFontSize);
+    const titleTab = groupTitleTabMetrics(group, titleFontSize);
     const g = createSvg("g", {
       "data-type": "group",
       "data-id": group.id,
@@ -1141,13 +1141,27 @@
         ...groupShapeAttrs
       }));
     }
+
+    g.appendChild(createSvg("rect", {
+      x: titleTab.x,
+      y: titleTab.y,
+      width: titleTab.w,
+      height: titleTab.h,
+      rx: Math.min(8, titleTab.h / 3),
+      fill: objectGradientFill(group, "group"),
+      stroke: active ? "#202329" : objectGradientFill(group, "group"),
+      "stroke-width": active ? 3 : 2,
+      "stroke-linejoin": "round"
+    }));
     g.appendChild(createSvg("text", {
-      x: titlePoint.x,
-      y: titlePoint.y,
+      x: titleTab.x + titleTab.w / 2,
+      y: titleTab.y + titleTab.h / 2 + 0.5,
       fill: groupTitleTextColor(group),
       "font-size": titleFontSize,
       "font-family": groupTitleFontFamily(group.titleFontFamily),
       "font-weight": 700,
+      "text-anchor": "middle",
+      "dominant-baseline": "middle",
       "paint-order": titleOutlineWidth > 0 ? "stroke" : "",
       stroke: titleOutlineWidth > 0 ? normalizeColorValue(group.titleOutlineColor, "#ffffff") : "",
       "stroke-width": titleOutlineWidth,
@@ -1178,13 +1192,41 @@
     return `M ${x} ${y} L ${x + w} ${y} L ${x + w} ${y + h} L ${x} ${y + h} Z`;
   }
 
-  function groupTitlePoint(group, titleFontSize) {
+  function groupTitleTabMetrics(group, titleFontSize) {
     const shape = normalizeGroupShape(group.shape);
     const notchW = normalizeGroupNotchWidth(group);
-    const titleX = shape === "l-top-left" ? group.x + notchW + 12 : group.x + 12;
+    const title = String(group.title || "グループ");
+    const horizontalPadding = clamp(titleFontSize * 0.7, 10, 18);
+    const height = Math.max(28, Math.ceil(titleFontSize + 18));
+    const width = Math.max(56, Math.ceil(estimatedGroupTitleWidth(title, titleFontSize) + horizontalPadding * 2));
+    const x = shape === "l-top-left" ? group.x + notchW + 10 : group.x + 12;
     return {
-      x: Math.min(titleX, group.x + group.w - 12),
-      y: group.y + 12 + titleFontSize * 0.82
+      x,
+      y: group.y - height + 2,
+      w: width,
+      h: height
+    };
+  }
+
+  function estimatedGroupTitleWidth(title, fontSize) {
+    return [...String(title || "")].reduce((width, character) => {
+      if (/\s/.test(character)) return width + fontSize * 0.35;
+      if (/^[\u0000-\u00ff]$/.test(character)) return width + fontSize * 0.62;
+      return width + fontSize;
+    }, 0);
+  }
+
+  function groupDisplayBounds(group) {
+    const titleTab = groupTitleTabMetrics(group, normalizeGroupTitleFontSize(group.titleFontSize));
+    const minX = Math.min(group.x, titleTab.x);
+    const minY = Math.min(group.y, titleTab.y);
+    const maxX = Math.max(group.x + group.w, titleTab.x + titleTab.w);
+    const maxY = Math.max(group.y + group.h, titleTab.y + titleTab.h);
+    return {
+      x: minX,
+      y: minY,
+      w: maxX - minX,
+      h: maxY - minY
     };
   }
 
@@ -7058,7 +7100,7 @@
   function contentBounds(padding) {
     const boxes = [
       ...state.nodes.map((node) => ({ x: node.x, y: node.y, w: node.w, h: node.h })),
-      ...state.groups.map((group) => ({ x: group.x, y: group.y, w: group.w, h: group.h })),
+      ...state.groups.map(groupDisplayBounds),
       ...state.texts.map(textItemBounds),
       ...state.shapes.map(shapeBounds),
       ...state.images.map(imageBounds),
