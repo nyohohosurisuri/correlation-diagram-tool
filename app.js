@@ -1,5 +1,6 @@
 (() => {
   const SVG_NS = "http://www.w3.org/2000/svg";
+  const XLINK_NS = "http://www.w3.org/1999/xlink";
   const STORAGE_KEY = "correlationDiagramToolState_v4";
   const PROJECT_META_KEY = "correlationDiagramToolProjectMeta_v1";
   const PNG_SCALE_KEY = "correlationDiagramToolPngScale_v1";
@@ -212,6 +213,7 @@
   let lastAutoSaveSnapshot = "";
   let autoSaveEnabled = loadAutoSaveEnabled();
   let imageObjectUrlCache = new Map();
+  let inlineImageAssetsForExport = false;
   let diagramRoot = null;
   let linkRouteCache = new Map();
   let cropSession = null;
@@ -865,7 +867,8 @@
     if (!href) return;
     parent.appendChild(createSvg("image", {
       ...attrs,
-      href
+      href,
+      "xlink:href": href
     }));
   }
 
@@ -931,7 +934,7 @@
   function resolveImageSource(value) {
     if (!value) return "";
     const asset = getImageAssetFromRef(value);
-    if (asset?.data) return imageAssetObjectUrl(asset);
+    if (asset?.data) return inlineImageAssetsForExport ? asset.data : imageAssetObjectUrl(asset);
     return isImageAssetRef(value) ? "" : value;
   }
 
@@ -5831,6 +5834,7 @@
     const renderSize = pngRenderSize(scale, bounds, outputSize);
     const exportSvg = svg.cloneNode(false);
     exportSvg.setAttribute("xmlns", SVG_NS);
+    exportSvg.setAttribute("xmlns:xlink", XLINK_NS);
     exportSvg.setAttribute("width", renderSize.width);
     exportSvg.setAttribute("height", renderSize.height);
     exportSvg.setAttribute("viewBox", `${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`);
@@ -5848,19 +5852,25 @@
     const root = createSvg("g");
     const previousSelection = selected;
     const previousMultiSelection = multiSelectedNodeIds;
-    selected = null;
-    multiSelectedNodeIds = new Set();
-    const linkLabelLayer = createSvg("g", { "data-layer": "link-labels" });
-    state.groups.forEach((group) => root.appendChild(renderGroup(group)));
-    state.links.forEach((link) => appendLinkWithLiftedLabel(root, linkLabelLayer, link));
-    root.appendChild(linkLabelLayer);
-    state.nodes.forEach((node) => root.appendChild(renderNode(node)));
-    state.shapes.forEach((shape) => root.appendChild(renderShape(shape)));
-    state.images.forEach((imageItem) => root.appendChild(renderInsertedImage(imageItem)));
-    state.legends.forEach((legend) => root.appendChild(renderLegend(legend)));
-    state.texts.forEach((textItem) => root.appendChild(renderTextItem(textItem)));
-    selected = previousSelection;
-    multiSelectedNodeIds = previousMultiSelection;
+    const previousInlineExport = inlineImageAssetsForExport;
+    try {
+      selected = null;
+      multiSelectedNodeIds = new Set();
+      inlineImageAssetsForExport = true;
+      const linkLabelLayer = createSvg("g", { "data-layer": "link-labels" });
+      state.groups.forEach((group) => root.appendChild(renderGroup(group)));
+      state.links.forEach((link) => appendLinkWithLiftedLabel(root, linkLabelLayer, link));
+      root.appendChild(linkLabelLayer);
+      state.nodes.forEach((node) => root.appendChild(renderNode(node)));
+      state.shapes.forEach((shape) => root.appendChild(renderShape(shape)));
+      state.images.forEach((imageItem) => root.appendChild(renderInsertedImage(imageItem)));
+      state.legends.forEach((legend) => root.appendChild(renderLegend(legend)));
+      state.texts.forEach((textItem) => root.appendChild(renderTextItem(textItem)));
+    } finally {
+      selected = previousSelection;
+      multiSelectedNodeIds = previousMultiSelection;
+      inlineImageAssetsForExport = previousInlineExport;
+    }
     exportSvg.appendChild(root);
 
     const source = new XMLSerializer().serializeToString(exportSvg);
@@ -7867,7 +7877,10 @@
   function createSvg(tag, attrs = {}, text = "") {
     const element = document.createElementNS(SVG_NS, tag);
     Object.entries(attrs).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) element.setAttribute(key, value);
+      if (value !== undefined && value !== null) {
+        if (key === "xlink:href") element.setAttributeNS(XLINK_NS, key, value);
+        else element.setAttribute(key, value);
+      }
     });
     if (text) element.textContent = text;
     return element;
