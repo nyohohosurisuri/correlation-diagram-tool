@@ -4345,7 +4345,8 @@
     }
 
     if (isViewMode()) {
-      const viewSelection = selectionFromDiagramTarget(target);
+      const previousSelection = selected ? { ...selected } : null;
+      const viewSelection = selectionFromDiagramTarget(target, point, previousSelection);
       selected = viewSelection;
       inspectorOpen = Boolean(viewSelection);
       pendingConnection = null;
@@ -4438,6 +4439,7 @@
         startConnectionGesture(event, group, "group", point);
         return;
       }
+      const previousSelection = selected ? { ...selected } : null;
       selected = { type: "group", id: group.id };
       inspectorOpen = false;
       drag = {
@@ -4451,6 +4453,7 @@
           y: group.y,
           containedItems: groupMoveContentsEnabled() ? collectGroupDragItems(group) : null
         },
+        previousSelection,
         moved: false
       };
       render();
@@ -4732,7 +4735,7 @@
       return;
     }
     if ((currentDrag.type === "node" || currentDrag.type === "group" || currentDrag.type === "group-resize" || currentDrag.type === "group-notch" || currentDrag.type === "text" || currentDrag.type === "shape" || currentDrag.type === "image" || currentDrag.type === "legend" || currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor") && !currentDrag.moved) {
-      handleTapSelection(currentDrag.type === "group-resize" || currentDrag.type === "group-notch" ? "group" : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor" ? "link" : currentDrag.type, currentDrag.id, event);
+      handleTapSelection(currentDrag.type === "group-resize" || currentDrag.type === "group-notch" ? "group" : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor" ? "link" : currentDrag.type, currentDrag.id, event, currentDrag.previousSelection);
       drag = null;
       render();
       return;
@@ -4895,7 +4898,7 @@
     requestViewportRender();
   }
 
-  function handleTapSelection(type, id, event) {
+  function handleTapSelection(type, id, event, previousSelection = null) {
     const screen = clientToScreen(event);
     const now = Date.now();
     const isDoubleTap = lastTap
@@ -4903,11 +4906,20 @@
       && lastTap.id === id
       && now - lastTap.time < DOUBLE_TAP_TIMEOUT_MS
       && distance(screen, lastTap.screen) < DOUBLE_TAP_DISTANCE_PX;
+    if (type === "group" && !isDoubleTap) {
+      const cycledSelection = groupSelectionAtPoint(clientToWorld(event), previousSelection);
+      if (cycledSelection) {
+        selected = cycledSelection;
+        inspectorOpen = false;
+        lastTap = { type: cycledSelection.type, id: cycledSelection.id, time: now, screen };
+        return;
+      }
+    }
     inspectorOpen = Boolean(isDoubleTap);
     lastTap = isDoubleTap ? null : { type, id, time: now, screen };
   }
 
-  function selectionFromDiagramTarget(target) {
+  function selectionFromDiagramTarget(target, point = null, previousSelection = null) {
     if (!target?.type || !target.id) return null;
     if (target.type === "group-resize" || target.type === "group-notch") {
       return getGroup(target.id) ? { type: "group", id: target.id } : null;
@@ -4916,7 +4928,7 @@
       return getLink(target.id) ? { type: "link", id: target.id } : null;
     }
     if (target.type === "node") return getNode(target.id) ? { type: "node", id: target.id } : null;
-    if (target.type === "group") return getGroup(target.id) ? { type: "group", id: target.id } : null;
+    if (target.type === "group") return groupSelectionAtPoint(point, previousSelection) || (getGroup(target.id) ? { type: "group", id: target.id } : null);
     if (target.type === "text") return getTextItem(target.id) ? { type: "text", id: target.id } : null;
     if (target.type === "shape") return getShape(target.id) ? { type: "shape", id: target.id } : null;
     if (target.type === "image") return getImageItem(target.id) ? { type: "image", id: target.id } : null;
@@ -7557,6 +7569,18 @@
     if (shape === "l-bottom-left") return point.x >= group.x + notchW || point.y <= group.y + group.h - notchH;
     if (shape === "l-bottom-right") return point.x <= group.x + group.w - notchW || point.y <= group.y + group.h - notchH;
     return true;
+  }
+
+  function groupSelectionAtPoint(point, previousSelection = null) {
+    if (!point || previousSelection?.type !== "group") return null;
+    const candidates = state.groups
+      .filter((group) => pointInGroupShape(group, point))
+      .reverse();
+    if (candidates.length <= 1) return null;
+    const currentIndex = candidates.findIndex((group) => group.id === previousSelection.id);
+    if (currentIndex < 0) return null;
+    const nextGroup = candidates[(currentIndex + 1) % candidates.length];
+    return nextGroup ? { type: "group", id: nextGroup.id } : null;
   }
 
   function positionSnapshot(item) {
