@@ -60,6 +60,8 @@
   const LINK_ROUTE_OUTER_PADDING = 80;
   const LINK_TERMINAL_STUB = 22;
   const LINK_ROUTE_CACHE_LIMIT = 1800;
+  const LINK_AXIS_CACHE_LIMIT = 2400;
+  const LINK_AXIS_SWITCH_RATIO = 1.35;
   const LINK_JUMP_RADIUS = 12;
   const LINK_JUMP_HEIGHT = 8;
   const LINK_JUMP_ENDPOINT_PADDING = 18;
@@ -222,6 +224,7 @@
   let inlineImageAssetsForExport = false;
   let diagramRoot = null;
   let linkRouteCache = new Map();
+  let linkRoutingAxisCache = new Map();
   let linkJumpPolylineCache = new Map();
   let linkJumpReferenceSegmentCache = new Map();
   let cropSession = null;
@@ -1989,7 +1992,7 @@
       x: midpointPoint.x + normal.x * curve + normalizedLinkRouteOffsetX(link),
       y: midpointPoint.y + normal.y * curve + normalizedLinkRouteOffsetY(link)
     };
-    const obstacles = linkNodeObstacles(new Set([fromEndpoint.id, toEndpoint.id]));
+    const obstacles = linkConnectionObstacles([fromEndpoint, toEndpoint]);
     if (quadraticCurveIntersectsObstacles(start, control, end, obstacles)) {
       renderOrthogonalLink(g, link, [fromEndpoint], [toEndpoint], active);
       return;
@@ -2011,8 +2014,8 @@
 
     const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
     const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
-    const useHorizontalTrunk = Math.abs(toCenter.x - fromCenter.x) >= Math.abs(toCenter.y - fromCenter.y);
-    const nodeObstacles = linkNodeObstacles();
+    const useHorizontalTrunk = resolveLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`);
+    const nodeObstacles = linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
     const allBranches = [];
     let trunkPath = "";
     let labelPoint;
@@ -2605,8 +2608,8 @@
 
     const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
     const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
-    const useHorizontalTrunk = Math.abs(toCenter.x - fromCenter.x) >= Math.abs(toCenter.y - fromCenter.y);
-    const nodeObstacles = linkNodeObstacles();
+    const useHorizontalTrunk = resolveLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`);
+    const nodeObstacles = linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
     if (useHorizontalTrunk) {
       const estimatedYs = [...fromEndpoints, ...toEndpoints].map((endpoint) => endpoint.center.y);
       const trunkX = chooseTrunkCoordinate(
@@ -7529,11 +7532,11 @@
     const routeEnd = endTerminal?.point || end;
     const preferredAxis = startTerminal?.axis
       || endTerminal?.axis
-      || (Math.abs(routeEnd.x - routeStart.x) >= Math.abs(routeEnd.y - routeStart.y) ? "horizontal" : "vertical");
+      || (resolveLinkFlowAxis(link, routeStart, routeEnd, "single") ? "horizontal" : "vertical");
     const hasManualOffset = Math.abs(normalizedLinkRouteOffsetX(link)) > 0.001 || Math.abs(normalizedLinkRouteOffsetY(link)) > 0.001;
     const routed = hasManualOffset
       ? manualOrthogonalRoutePoints(link, routeStart, routeEnd, preferredAxis)
-      : routeOrthogonalPoints(routeStart, routeEnd, preferredAxis, linkNodeObstacles(new Set([fromEndpoint.id, toEndpoint.id])));
+      : routeOrthogonalPoints(routeStart, routeEnd, preferredAxis, linkConnectionObstacles([fromEndpoint, toEndpoint]));
     const points = [start];
     if (startTerminal) points.push(startTerminal.point);
     points.push(...routed);
@@ -7626,6 +7629,48 @@
         y: terminal.point.y + offset.y
       }
     };
+  }
+
+  function resolveLinkFlowAxis(link, from, to, scope) {
+    const horizontalDistance = Math.abs(to.x - from.x);
+    const verticalDistance = Math.abs(to.y - from.y);
+    const proposed = horizontalDistance >= verticalDistance ? "horizontal" : "vertical";
+    const cacheKey = `${scope}|${link.id}`;
+    const previous = linkRoutingAxisCache.get(cacheKey);
+    let resolved = proposed;
+
+    // Keep an existing bend direction until the alternate direction is clearly shorter.
+    if (previous && previous !== proposed) {
+      const previousDistance = previous === "horizontal" ? horizontalDistance : verticalDistance;
+      const proposedDistance = proposed === "horizontal" ? horizontalDistance : verticalDistance;
+      if (proposedDistance < previousDistance * LINK_AXIS_SWITCH_RATIO) {
+        resolved = previous;
+      }
+    }
+
+    linkRoutingAxisCache.delete(cacheKey);
+    linkRoutingAxisCache.set(cacheKey, resolved);
+    while (linkRoutingAxisCache.size > LINK_AXIS_CACHE_LIMIT) {
+      const oldestKey = linkRoutingAxisCache.keys().next().value;
+      if (oldestKey === undefined) break;
+      linkRoutingAxisCache.delete(oldestKey);
+    }
+    return resolved === "horizontal";
+  }
+
+  function linkConnectionObstacles(endpoints) {
+    const endpointItems = endpoints.map((endpoint) => endpoint?.item).filter(Boolean);
+    const endpointIds = new Set(endpoints.map((endpoint) => endpoint?.id).filter(Boolean));
+    const obstacles = linkNodeObstacles(endpointIds);
+    if (!endpointItems.length || !obstacles.length) return obstacles;
+
+    // A relationship only needs to consider nearby icons. Distant icons must not change its route.
+    const padding = LINK_ROUTE_OUTER_PADDING + LINK_AVOID_PADDING;
+    const minX = Math.min(...endpointItems.map((item) => item.x)) - padding;
+    const maxX = Math.max(...endpointItems.map((item) => item.x + item.w)) + padding;
+    const minY = Math.min(...endpointItems.map((item) => item.y)) - padding;
+    const maxY = Math.max(...endpointItems.map((item) => item.y + item.h)) + padding;
+    return obstacles.filter((obstacle) => rectIntersectsBounds(obstacle, minX, minY, maxX, maxY));
   }
 
   function chooseTrunkCoordinate(axis, base, rangeStart, rangeEnd, obstacles) {
@@ -8105,7 +8150,7 @@
       const fromEndpoint = fromEndpoints[0];
       const toEndpoint = toEndpoints[0];
       const curve = linkCurveGeometry(link, fromEndpoint, toEndpoint);
-      const obstacles = linkNodeObstacles(new Set([fromEndpoint.id, toEndpoint.id]));
+      const obstacles = linkConnectionObstacles([fromEndpoint, toEndpoint]);
       if (!quadraticCurveIntersectsObstacles(curve.start, curve.control, curve.end, obstacles)) {
         return [approximateQuadraticPolyline(curve.start, curve.control, curve.end, 28)];
       }
@@ -8140,8 +8185,8 @@
 
     const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
     const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
-    const useHorizontalTrunk = Math.abs(toCenter.x - fromCenter.x) >= Math.abs(toCenter.y - fromCenter.y);
-    const nodeObstacles = linkNodeObstacles();
+    const useHorizontalTrunk = resolveLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`);
+    const nodeObstacles = linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
     const polylines = [];
 
     if (useHorizontalTrunk) {
