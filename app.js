@@ -4440,20 +4440,24 @@
         return;
       }
       const previousSelection = selected ? { ...selected } : null;
-      selected = { type: "group", id: group.id };
+      const selectedGroupUnderPoint = previousSelection?.type === "group" && previousSelection.id !== group.id
+        ? groupAtPoint(previousSelection.id, point)
+        : null;
+      const interactionGroup = selectedGroupUnderPoint || group;
+      selected = { type: "group", id: interactionGroup.id };
       inspectorOpen = false;
       drag = {
         type: "group",
-        id: group.id,
+        id: interactionGroup.id,
         pointerId: event.pointerId,
         start: point,
         startScreen: screen,
         original: {
-          x: group.x,
-          y: group.y,
-          containedItems: groupMoveContentsEnabled() ? collectGroupDragItems(group) : null
+          x: interactionGroup.x,
+          y: interactionGroup.y,
+          containedItems: groupMoveContentsEnabled() ? collectGroupDragItems(interactionGroup) : null
         },
-        previousSelection,
+        previousSelection: selectedGroupUnderPoint ? null : previousSelection,
         moved: false
       };
       render();
@@ -7581,6 +7585,11 @@
     if (currentIndex < 0) return null;
     const nextGroup = candidates[(currentIndex + 1) % candidates.length];
     return nextGroup ? { type: "group", id: nextGroup.id } : null;
+  }
+
+  function groupAtPoint(id, point) {
+    const group = getGroup(id);
+    return group && pointInGroupShape(group, point) ? group : null;
   }
 
   function positionSnapshot(item) {
