@@ -15,6 +15,7 @@
   const LINK_LABEL_DEFAULT_BORDER = "#202329";
   const PNG_MAX_DIMENSION = 12000;
   const PNG_MAX_PIXELS = 64000000;
+  const PNG_MIN_RENDER_SCALE = 2;
   const NODE_DEFAULT_WIDTH = 120;
   const NODE_DEFAULT_HEIGHT = 130;
   const NODE_SIZE_PRESETS = [
@@ -5500,7 +5501,7 @@
     form.appendChild(field("倍率", scaleControl));
     form.appendChild(presetRow);
     form.appendChild(field("出力サイズ", sizePreview));
-    form.appendChild(el("p", { class: "project-note" }, "倍率を上げるほどPNGのピクセル数が増えます。スマホ共有用は1x、印刷や拡大表示用は2x以上が目安です。"));
+    form.appendChild(el("p", { class: "project-note" }, "低倍率でも文字や線が潰れにくいよう、内部では高解像度で描画してからPNGサイズへ縮小します。印刷や拡大表示用は2x以上が目安です。"));
 
     const actions = el("div", { class: "project-actions" });
     const exportButton = el("button", { type: "button", class: "primary-action" }, "PNGを書き出し");
@@ -5827,10 +5828,11 @@
       window.alert(`PNGサイズが大きすぎます。倍率を下げてください。\n現在: ${outputSize.width} x ${outputSize.height}px`);
       return;
     }
+    const renderSize = pngRenderSize(scale, bounds, outputSize);
     const exportSvg = svg.cloneNode(false);
     exportSvg.setAttribute("xmlns", SVG_NS);
-    exportSvg.setAttribute("width", outputSize.width);
-    exportSvg.setAttribute("height", outputSize.height);
+    exportSvg.setAttribute("width", renderSize.width);
+    exportSvg.setAttribute("height", renderSize.height);
     exportSvg.setAttribute("viewBox", `${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`);
     exportSvg.appendChild(createSvg("rect", {
       x: bounds.x,
@@ -5866,13 +5868,23 @@
     const svgBlob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(svgBlob);
     image.onload = () => {
+      const renderCanvas = document.createElement("canvas");
+      renderCanvas.width = renderSize.width;
+      renderCanvas.height = renderSize.height;
+      const renderContext = renderCanvas.getContext("2d");
+      renderContext.fillStyle = "#f9faf7";
+      renderContext.fillRect(0, 0, renderCanvas.width, renderCanvas.height);
+      renderContext.drawImage(image, 0, 0, renderCanvas.width, renderCanvas.height);
+
       const canvas = document.createElement("canvas");
       canvas.width = outputSize.width;
       canvas.height = outputSize.height;
       const context = canvas.getContext("2d");
       context.fillStyle = "#f9faf7";
       context.fillRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(renderCanvas, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
       canvas.toBlob((blob) => {
         if (blob) downloadBlob(blob, "correlation-diagram.png", "image/png");
@@ -6050,6 +6062,19 @@
     return {
       width: Math.max(1, Math.round(baseWidth * factor)),
       height: Math.max(1, Math.round(baseHeight * factor))
+    };
+  }
+
+  function pngRenderSize(scale, bounds = contentBounds(36), outputSize = pngOutputSize(scale, bounds)) {
+    const outputScale = clamp(Number(scale) || 1, 0.5, 4);
+    const desiredRenderScale = Math.max(outputScale, PNG_MIN_RENDER_SCALE);
+    let factor = Math.max(1, desiredRenderScale / outputScale);
+    const dimensionLimit = Math.min(PNG_MAX_DIMENSION / outputSize.width, PNG_MAX_DIMENSION / outputSize.height);
+    const pixelLimit = Math.sqrt(PNG_MAX_PIXELS / Math.max(1, outputSize.width * outputSize.height));
+    factor = Math.max(1, Math.min(factor, dimensionLimit, pixelLimit));
+    return {
+      width: Math.max(outputSize.width, Math.floor(outputSize.width * factor)),
+      height: Math.max(outputSize.height, Math.floor(outputSize.height * factor))
     };
   }
 
