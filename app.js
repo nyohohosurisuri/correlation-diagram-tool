@@ -63,6 +63,8 @@
   const LINK_JUMP_RADIUS = 12;
   const LINK_JUMP_HEIGHT = 8;
   const LINK_JUMP_ENDPOINT_PADDING = 18;
+  const MARQUEE_SELECT_THRESHOLD = 6;
+  const MULTI_SELECT_TYPES = new Set(["node", "group", "text", "shape", "image", "legend"]);
   const PALETTE = [
     "#e53935",
     "#d81b60",
@@ -197,6 +199,7 @@
   let state = createInitialState();
   let selected = null;
   let multiSelectedNodeIds = new Set();
+  let multiSelectedItemKeys = new Set();
   let inspectorOpen = false;
   let inspectorCollapseState = new Map();
   let mode = "select";
@@ -553,7 +556,7 @@
       state.images = [];
       state.imageAssets = [];
       selected = null;
-      multiSelectedNodeIds.clear();
+      clearMultiSelection();
       inspectorOpen = false;
       mode = "select";
       pendingConnection = null;
@@ -618,7 +621,7 @@
         if (mode === "connect") mode = "select";
         pendingConnection = null;
         selected = null;
-        multiSelectedNodeIds.clear();
+        clearMultiSelection();
         inspectorOpen = false;
         render();
       }
@@ -670,7 +673,7 @@
     } else {
       mode = "view";
       pendingConnection = null;
-      multiSelectedNodeIds.clear();
+      clearMultiSelection();
       inspectorOpen = Boolean(selected);
     }
     render();
@@ -779,6 +782,7 @@
     state.images.forEach((imageItem) => root.appendChild(renderInsertedImage(imageItem)));
     state.legends.forEach((legend) => root.appendChild(renderLegend(legend)));
     state.texts.forEach((textItem) => root.appendChild(renderTextItem(textItem)));
+    if (drag?.type === "marquee") root.appendChild(renderMarqueeSelection(drag));
     state.groups.forEach((group) => {
       const handle = renderGroupResizeHandle(group);
       if (handle) root.appendChild(handle);
@@ -1056,7 +1060,7 @@
   }
 
   function renderGroup(group) {
-    const active = isSelected("group", group.id);
+    const active = isSelected("group", group.id) || isMultiSelectedItem("group", group.id);
     const titleFontSize = normalizeGroupTitleFontSize(group.titleFontSize);
     const titleOutlineWidth = normalizeGroupTitleOutlineWidth(group.titleOutlineWidth);
     const shape = normalizeGroupShape(group.shape);
@@ -1263,7 +1267,7 @@
   }
 
   function renderNode(node) {
-    const active = isSelected("node", node.id) || multiSelectedNodeIds.has(node.id);
+    const active = isSelected("node", node.id) || isMultiSelectedItem("node", node.id);
     const {
       nameLines,
       roleLines,
@@ -1575,7 +1579,7 @@
   }
 
   function renderTextItem(textItem) {
-    const active = isSelected("text", textItem.id);
+    const active = isSelected("text", textItem.id) || isMultiSelectedItem("text", textItem.id);
     const lines = wrapTextLines(textItem.content || "テキスト", textItem.w, textItem.fontSize);
     const lineHeight = textItem.fontSize * 1.32;
     const height = Math.max(textItem.fontSize, lines.length * lineHeight);
@@ -1645,7 +1649,7 @@
   }
 
   function renderShape(shape) {
-    const active = isSelected("shape", shape.id);
+    const active = isSelected("shape", shape.id) || isMultiSelectedItem("shape", shape.id);
     const g = createSvg("g", {
       "data-type": "shape",
       "data-id": shape.id,
@@ -1732,7 +1736,7 @@
   }
 
   function renderInsertedImage(imageItem) {
-    const active = isSelected("image", imageItem.id);
+    const active = isSelected("image", imageItem.id) || isMultiSelectedItem("image", imageItem.id);
     const g = createSvg("g", {
       "data-type": "image",
       "data-id": imageItem.id,
@@ -1777,7 +1781,7 @@
   }
 
   function renderLegend(legend) {
-    const active = isSelected("legend", legend.id);
+    const active = isSelected("legend", legend.id) || isMultiSelectedItem("legend", legend.id);
     const metrics = legendMetrics(legend);
     const g = createSvg("g", {
       "data-type": "legend",
@@ -2754,7 +2758,25 @@
     return g;
   }
 
+  function renderMarqueeSelection(marqueeDrag) {
+    const rect = marqueeRect(marqueeDrag.start, marqueeDrag.current || marqueeDrag.start);
+    const g = createSvg("g", { "pointer-events": "none" });
+    g.appendChild(createSvg("rect", {
+      x: rect.x,
+      y: rect.y,
+      width: rect.w,
+      height: rect.h,
+      rx: 4,
+      fill: "rgba(20, 125, 114, 0.12)",
+      stroke: "#147d72",
+      "stroke-width": 1.5,
+      "stroke-dasharray": "7 5"
+    }));
+    return g;
+  }
+
   function renderSelectionList() {
+    normalizeMultiSelection();
     const items = [
       ...state.nodes.map((node) => ({ type: "node", id: node.id, name: node.name || "人物", color: node.color, dotStyle: selectionDotStyle(node) })),
       ...state.groups.map((group) => ({ type: "group", id: group.id, name: group.title || "グループ", color: group.color, dotStyle: selectionDotStyle(group) })),
@@ -2794,7 +2816,7 @@
         class: [
           "selection-item",
           isSelected(item.type, item.id) ? "is-active" : "",
-          item.type === "node" && multiSelectedNodeIds.has(item.id) ? "is-multi-selected" : ""
+          isMultiSelectedItem(item.type, item.id) ? "is-multi-selected" : ""
         ].filter(Boolean).join(" ")
       });
       if (item.type === "node") {
@@ -2803,7 +2825,7 @@
           class: "selection-check",
           title: "整列対象"
         });
-        checkbox.checked = multiSelectedNodeIds.has(item.id);
+        checkbox.checked = isMultiSelectedItem("node", item.id);
         checkbox.disabled = isViewMode();
         checkbox.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -2845,15 +2867,93 @@
   }
 
   function toggleMultiSelectedNode(id, force) {
-    if (!getNode(id)) return;
-    const shouldSelect = force === undefined ? !multiSelectedNodeIds.has(id) : Boolean(force);
-    if (shouldSelect) multiSelectedNodeIds.add(id);
-    else multiSelectedNodeIds.delete(id);
+    toggleMultiSelectedItem("node", id, force);
+  }
+
+  function toggleMultiSelectedItem(type, id, force) {
+    if (!isMultiSelectableType(type) || !getSelectableItem(type, id)) return;
+    const shouldSelect = force === undefined ? !isMultiSelectedItem(type, id) : Boolean(force);
+    setMultiSelectedItem(type, id, shouldSelect);
     render();
   }
 
+  function isMultiSelectableType(type) {
+    return MULTI_SELECT_TYPES.has(type);
+  }
+
+  function multiSelectionKey(type, id) {
+    return `${type}:${id}`;
+  }
+
+  function parseMultiSelectionKey(key) {
+    const separator = String(key || "").indexOf(":");
+    if (separator < 0) return null;
+    return {
+      type: key.slice(0, separator),
+      id: key.slice(separator + 1)
+    };
+  }
+
+  function isMultiSelectedItem(type, id) {
+    if (!isMultiSelectableType(type) || !id) return false;
+    return multiSelectedItemKeys.has(multiSelectionKey(type, id)) || (type === "node" && multiSelectedNodeIds.has(id));
+  }
+
+  function setMultiSelectedItem(type, id, shouldSelect = true) {
+    if (!isMultiSelectableType(type) || !id) return;
+    const key = multiSelectionKey(type, id);
+    if (shouldSelect) {
+      multiSelectedItemKeys.add(key);
+      if (type === "node") multiSelectedNodeIds.add(id);
+      return;
+    }
+    multiSelectedItemKeys.delete(key);
+    if (type === "node") multiSelectedNodeIds.delete(id);
+  }
+
+  function clearMultiSelection() {
+    multiSelectedItemKeys.clear();
+    multiSelectedNodeIds.clear();
+  }
+
+  function multiSelectedItems() {
+    normalizeMultiSelection();
+    return [...multiSelectedItemKeys]
+      .map(parseMultiSelectionKey)
+      .filter((entry) => entry && getSelectableItem(entry.type, entry.id));
+  }
+
+  function multiSelectedCount() {
+    return multiSelectedItems().length;
+  }
+
+  function normalizeMultiSelection() {
+    multiSelectedNodeIds.forEach((id) => {
+      if (getNode(id)) multiSelectedItemKeys.add(multiSelectionKey("node", id));
+      else multiSelectedNodeIds.delete(id);
+    });
+    [...multiSelectedItemKeys].forEach((key) => {
+      const entry = parseMultiSelectionKey(key);
+      if (!entry || !isMultiSelectableType(entry.type) || !getSelectableItem(entry.type, entry.id)) {
+        multiSelectedItemKeys.delete(key);
+        return;
+      }
+      if (entry.type === "node") multiSelectedNodeIds.add(entry.id);
+    });
+  }
+
+  function getSelectableItem(type, id) {
+    if (type === "node") return getNode(id);
+    if (type === "group") return getGroup(id);
+    if (type === "text") return getTextItem(id);
+    if (type === "shape") return getShape(id);
+    if (type === "image") return getImageItem(id);
+    if (type === "legend") return getLegend(id);
+    return null;
+  }
+
   function selectedAlignmentNodes() {
-    return state.nodes.filter((node) => multiSelectedNodeIds.has(node.id));
+    return state.nodes.filter((node) => isMultiSelectedItem("node", node.id));
   }
 
   function alignmentSpacing() {
@@ -2861,10 +2961,7 @@
   }
 
   function updateAlignControls() {
-    const validIds = new Set(state.nodes.map((node) => node.id));
-    [...multiSelectedNodeIds].forEach((id) => {
-      if (!validIds.has(id)) multiSelectedNodeIds.delete(id);
-    });
+    normalizeMultiSelection();
     const count = selectedAlignmentNodes().length;
     const disabled = isViewMode() || count < 2;
     if (alignHorizontalBtn) alignHorizontalBtn.disabled = disabled;
@@ -4066,7 +4163,7 @@
     resetWorkspaceGesture();
     state = createBlankState();
     selected = null;
-    multiSelectedNodeIds.clear();
+    clearMultiSelection();
     inspectorOpen = false;
     mode = "select";
     pendingConnection = null;
@@ -4378,6 +4475,7 @@
     if (target?.type === "group-notch") {
       const group = getGroup(target.id);
       if (!group || normalizeGroupShape(group.shape) === "rect") return;
+      clearMultiSelection();
       selected = { type: "group", id: group.id };
       mode = "select";
       pendingConnection = null;
@@ -4404,6 +4502,7 @@
         startConnectionGesture(event, group, "group", point);
         return;
       }
+      clearMultiSelection();
       selected = { type: "group", id: group.id };
       mode = "select";
       pendingConnection = null;
@@ -4428,9 +4527,14 @@
         return;
       }
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
-        toggleMultiSelectedNode(node.id);
+        toggleMultiSelectedItem("node", node.id);
         return;
       }
+      if (isMultiSelectedItem("node", node.id) && multiSelectedCount() > 1) {
+        startMultiSelectionDrag(event, "node", node.id, point, screen);
+        return;
+      }
+      clearMultiSelection();
       selected = { type: "node", id: node.id };
       inspectorOpen = false;
       drag = {
@@ -4458,6 +4562,15 @@
         ? groupAtPoint(previousSelection.id, point)
         : null;
       const interactionGroup = selectedGroupUnderPoint || group;
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        toggleMultiSelectedItem("group", interactionGroup.id);
+        return;
+      }
+      if (isMultiSelectedItem("group", interactionGroup.id) && multiSelectedCount() > 1) {
+        startMultiSelectionDrag(event, "group", interactionGroup.id, point, screen);
+        return;
+      }
+      clearMultiSelection();
       selected = { type: "group", id: interactionGroup.id };
       inspectorOpen = false;
       drag = {
@@ -4481,6 +4594,15 @@
     if (target?.type === "text") {
       const textItem = getTextItem(target.id);
       if (!textItem) return;
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        toggleMultiSelectedItem("text", textItem.id);
+        return;
+      }
+      if (isMultiSelectedItem("text", textItem.id) && multiSelectedCount() > 1) {
+        startMultiSelectionDrag(event, "text", textItem.id, point, screen);
+        return;
+      }
+      clearMultiSelection();
       selected = { type: "text", id: textItem.id };
       mode = "select";
       pendingConnection = null;
@@ -4501,6 +4623,15 @@
     if (target?.type === "shape") {
       const shape = getShape(target.id);
       if (!shape) return;
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        toggleMultiSelectedItem("shape", shape.id);
+        return;
+      }
+      if (isMultiSelectedItem("shape", shape.id) && multiSelectedCount() > 1) {
+        startMultiSelectionDrag(event, "shape", shape.id, point, screen);
+        return;
+      }
+      clearMultiSelection();
       selected = { type: "shape", id: shape.id };
       mode = "select";
       pendingConnection = null;
@@ -4521,6 +4652,15 @@
     if (target?.type === "image") {
       const imageItem = getImageItem(target.id);
       if (!imageItem) return;
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        toggleMultiSelectedItem("image", imageItem.id);
+        return;
+      }
+      if (isMultiSelectedItem("image", imageItem.id) && multiSelectedCount() > 1) {
+        startMultiSelectionDrag(event, "image", imageItem.id, point, screen);
+        return;
+      }
+      clearMultiSelection();
       selected = { type: "image", id: imageItem.id };
       mode = "select";
       pendingConnection = null;
@@ -4541,6 +4681,15 @@
     if (target?.type === "legend") {
       const legend = getLegend(target.id);
       if (!legend) return;
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        toggleMultiSelectedItem("legend", legend.id);
+        return;
+      }
+      if (isMultiSelectedItem("legend", legend.id) && multiSelectedCount() > 1) {
+        startMultiSelectionDrag(event, "legend", legend.id, point, screen);
+        return;
+      }
+      clearMultiSelection();
       selected = { type: "legend", id: legend.id };
       mode = "select";
       pendingConnection = null;
@@ -4559,20 +4708,24 @@
     }
 
     if (target?.type === "link-anchor") {
+      clearMultiSelection();
       if (startLinkAnchorDrag(event, target, point, screen)) return;
     }
 
     if (target?.type === "link-terminal") {
+      clearMultiSelection();
       if (startLinkTerminalDrag(event, target, point, screen)) return;
     }
 
     if (target?.type === "link-route") {
+      clearMultiSelection();
       if (startLinkRouteDrag(event, target, point, screen)) return;
     }
 
     if (target?.type === "link-label") {
       const link = getLink(target.id);
       if (!link) return;
+      clearMultiSelection();
       selected = { type: "link", id: link.id };
       mode = "select";
       pendingConnection = null;
@@ -4594,10 +4747,17 @@
     }
 
     if (target?.type === "link") {
+      clearMultiSelection();
       if (startLinkRouteDrag(event, target.id, point, screen)) return;
     }
 
+    if (shouldStartMarqueeSelection(event, target)) {
+      startMarqueeSelection(event, point, screen);
+      return;
+    }
+
     selected = null;
+    clearMultiSelection();
     inspectorOpen = false;
     drag = {
       type: "pan",
@@ -4639,6 +4799,18 @@
       return;
     }
 
+    if (drag.type === "marquee") {
+      const point = clientToWorld(event);
+      const screen = clientToScreen(event);
+      drag.current = point;
+      if (Math.hypot(screen.x - drag.startScreen.x, screen.y - drag.startScreen.y) > MARQUEE_SELECT_THRESHOLD) {
+        drag.moved = true;
+        updateMarqueeSelection(drag);
+      }
+      requestDiagramRender();
+      return;
+    }
+
     const point = clientToWorld(event);
     const dx = point.x - drag.start.x;
     const dy = point.y - drag.start.y;
@@ -4651,6 +4823,9 @@
       if (!node) return;
       node.x = drag.original.x + dx;
       node.y = drag.original.y + dy;
+    }
+    if (drag.type === "multi") {
+      applyMultiSelectionDrag(drag.items, dx, dy);
     }
     if (drag.type === "group") {
       const group = getGroup(drag.id);
@@ -4752,8 +4927,19 @@
       render();
       return;
     }
-    if ((currentDrag.type === "node" || currentDrag.type === "group" || currentDrag.type === "group-resize" || currentDrag.type === "group-notch" || currentDrag.type === "text" || currentDrag.type === "shape" || currentDrag.type === "image" || currentDrag.type === "legend" || currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor") && !currentDrag.moved) {
-      handleTapSelection(currentDrag.type === "group-resize" || currentDrag.type === "group-notch" ? "group" : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor" ? "link" : currentDrag.type, currentDrag.id, event, currentDrag.previousSelection);
+    if (currentDrag.type === "marquee") {
+      if (!currentDrag.moved) {
+        if (!currentDrag.additive) clearMultiSelection();
+        selected = null;
+      } else {
+        updateMarqueeSelection(currentDrag);
+      }
+      drag = null;
+      render();
+      return;
+    }
+    if ((currentDrag.type === "node" || currentDrag.type === "multi" || currentDrag.type === "group" || currentDrag.type === "group-resize" || currentDrag.type === "group-notch" || currentDrag.type === "text" || currentDrag.type === "shape" || currentDrag.type === "image" || currentDrag.type === "legend" || currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor") && !currentDrag.moved) {
+      handleTapSelection(currentDrag.type === "multi" ? currentDrag.itemType : currentDrag.type === "group-resize" || currentDrag.type === "group-notch" ? "group" : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor" ? "link" : currentDrag.type, currentDrag.id, event, currentDrag.previousSelection);
       drag = null;
       render();
       return;
@@ -4776,6 +4962,16 @@
       drag = null;
       if (currentDrag.type === "connect") {
         finishConnectionGesture(event, currentDrag);
+        render();
+        return;
+      }
+      if (currentDrag.type === "marquee") {
+        if (!currentDrag.moved) {
+          if (!currentDrag.additive) clearMultiSelection();
+          selected = null;
+        } else {
+          updateMarqueeSelection(currentDrag);
+        }
         render();
         return;
       }
@@ -4812,6 +5008,9 @@
         node.x = drag.original.x;
         node.y = drag.original.y;
       }
+    }
+    if (drag?.type === "multi") {
+      applyMultiSelectionDrag(drag.items, 0, 0);
     }
     if (drag?.type === "group") {
       restoreGroupDrag(drag);
@@ -4952,6 +5151,133 @@
     if (target.type === "image") return getImageItem(target.id) ? { type: "image", id: target.id } : null;
     if (target.type === "legend") return getLegend(target.id) ? { type: "legend", id: target.id } : null;
     return null;
+  }
+
+  function shouldStartMarqueeSelection(event, target) {
+    return !target
+      && mode === "select"
+      && event.pointerType === "mouse"
+      && event.button === 0
+      && !event.altKey;
+  }
+
+  function startMarqueeSelection(event, point, screen) {
+    const additive = Boolean(event.shiftKey || event.ctrlKey || event.metaKey);
+    const baseItemKeys = new Set(multiSelectedItemKeys);
+    const baseNodeIds = new Set(multiSelectedNodeIds);
+    if (!additive) {
+      selected = null;
+      clearMultiSelection();
+    }
+    inspectorOpen = false;
+    pendingConnection = null;
+    drag = {
+      type: "marquee",
+      pointerId: event.pointerId,
+      start: point,
+      current: point,
+      startScreen: screen,
+      additive,
+      baseItemKeys,
+      baseNodeIds,
+      moved: false
+    };
+    render();
+  }
+
+  function updateMarqueeSelection(marqueeDrag) {
+    multiSelectedItemKeys = marqueeDrag.additive ? new Set(marqueeDrag.baseItemKeys) : new Set();
+    multiSelectedNodeIds = marqueeDrag.additive ? new Set(marqueeDrag.baseNodeIds) : new Set();
+    const hits = selectableItemsInRect(marqueeRect(marqueeDrag.start, marqueeDrag.current || marqueeDrag.start));
+    hits.forEach((item) => setMultiSelectedItem(item.type, item.id, true));
+    selected = hits.length === 1 ? { type: hits[0].type, id: hits[0].id } : null;
+    inspectorOpen = false;
+  }
+
+  function marqueeRect(start, end) {
+    const x1 = Math.min(start.x, end.x);
+    const y1 = Math.min(start.y, end.y);
+    const x2 = Math.max(start.x, end.x);
+    const y2 = Math.max(start.y, end.y);
+    return {
+      x: x1,
+      y: y1,
+      w: x2 - x1,
+      h: y2 - y1
+    };
+  }
+
+  function selectableItemsInRect(rect) {
+    const candidates = [
+      ...state.nodes.map((node) => ({ type: "node", id: node.id, bounds: node })),
+      ...state.groups.map((group) => ({ type: "group", id: group.id, bounds: group })),
+      ...state.texts.map((textItem) => ({ type: "text", id: textItem.id, bounds: textItemBounds(textItem) })),
+      ...state.shapes.map((shape) => ({ type: "shape", id: shape.id, bounds: shapeBounds(shape) })),
+      ...state.images.map((imageItem) => ({ type: "image", id: imageItem.id, bounds: imageBounds(imageItem) })),
+      ...state.legends.map((legend) => ({ type: "legend", id: legend.id, bounds: legendBounds(legend) }))
+    ];
+    return candidates
+      .filter((item) => rectsIntersect(rect, item.bounds))
+      .map(({ type, id }) => ({ type, id }));
+  }
+
+  function rectsIntersect(a, b) {
+    if (!a || !b) return false;
+    return a.x <= b.x + b.w
+      && a.x + a.w >= b.x
+      && a.y <= b.y + b.h
+      && a.y + a.h >= b.y;
+  }
+
+  function startMultiSelectionDrag(event, type, id, point, screen) {
+    const items = collectMultiSelectionDragItems();
+    if (multiDragItemCount(items) < 2) return false;
+    selected = { type, id };
+    mode = "select";
+    pendingConnection = null;
+    inspectorOpen = false;
+    drag = {
+      type: "multi",
+      id,
+      itemType: type,
+      pointerId: event.pointerId,
+      start: point,
+      startScreen: screen,
+      items,
+      moved: false
+    };
+    render();
+    return true;
+  }
+
+  function collectMultiSelectionDragItems() {
+    const keys = new Set(multiSelectedItems().map((item) => multiSelectionKey(item.type, item.id)));
+    return {
+      nodes: state.nodes.filter((node) => keys.has(multiSelectionKey("node", node.id))).map(positionSnapshot),
+      groups: state.groups.filter((group) => keys.has(multiSelectionKey("group", group.id))).map(positionSnapshot),
+      texts: state.texts.filter((textItem) => keys.has(multiSelectionKey("text", textItem.id))).map(positionSnapshot),
+      shapes: state.shapes.filter((shape) => keys.has(multiSelectionKey("shape", shape.id))).map(positionSnapshot),
+      images: state.images.filter((imageItem) => keys.has(multiSelectionKey("image", imageItem.id))).map(positionSnapshot),
+      legends: state.legends.filter((legend) => keys.has(multiSelectionKey("legend", legend.id))).map(positionSnapshot)
+    };
+  }
+
+  function multiDragItemCount(items) {
+    return (items.nodes?.length || 0)
+      + (items.groups?.length || 0)
+      + (items.texts?.length || 0)
+      + (items.shapes?.length || 0)
+      + (items.images?.length || 0)
+      + (items.legends?.length || 0);
+  }
+
+  function applyMultiSelectionDrag(items, dx, dy) {
+    applyPositionSnapshots(items.nodes, getNode, dx, dy);
+    applyPositionSnapshots(items.groups, getGroup, dx, dy);
+    applyPositionSnapshots(items.texts, getTextItem, dx, dy);
+    applyPositionSnapshots(items.shapes, getShape, dx, dy);
+    applyPositionSnapshots(items.images, getImageItem, dx, dy);
+    applyPositionSnapshots(items.legends, getLegend, dx, dy);
   }
 
   function startLinkRouteDrag(event, targetOrId, point, screen) {
@@ -5233,7 +5559,7 @@
     if (selected.type === "node") {
       state.nodes = state.nodes.filter((node) => node.id !== selected.id);
       state.links = state.links.filter((link) => !linkReferencesEndpoint(link, selected.id));
-      multiSelectedNodeIds.delete(selected.id);
+      setMultiSelectedItem("node", selected.id, false);
     }
     if (selected.type === "group") {
       state.groups = state.groups.filter((group) => group.id !== selected.id);
@@ -5595,7 +5921,7 @@
       if (!next) throw new Error("invalid_project");
       state = next;
       selected = null;
-      multiSelectedNodeIds.clear();
+      clearMultiSelection();
       inspectorOpen = false;
       mode = "select";
       pendingConnection = null;
@@ -5676,7 +6002,7 @@
       if (!next) return false;
       state = next;
       selected = null;
-      multiSelectedNodeIds.clear();
+      clearMultiSelection();
       inspectorOpen = false;
       mode = "select";
       pendingConnection = null;
@@ -5814,7 +6140,7 @@
         if (!next) throw new Error("Invalid data");
         state = next;
         selected = null;
-        multiSelectedNodeIds.clear();
+        clearMultiSelection();
         inspectorOpen = false;
         mode = "select";
         pendingConnection = null;
@@ -5862,10 +6188,12 @@
     const root = createSvg("g");
     const previousSelection = selected;
     const previousMultiSelection = multiSelectedNodeIds;
+    const previousMultiItemSelection = multiSelectedItemKeys;
     const previousInlineExport = inlineImageAssetsForExport;
     try {
       selected = null;
       multiSelectedNodeIds = new Set();
+      multiSelectedItemKeys = new Set();
       inlineImageAssetsForExport = true;
       const linkLabelLayer = createSvg("g", { "data-layer": "link-labels" });
       state.groups.forEach((group) => root.appendChild(renderGroup(group)));
@@ -5879,6 +6207,7 @@
     } finally {
       selected = previousSelection;
       multiSelectedNodeIds = previousMultiSelection;
+      multiSelectedItemKeys = previousMultiItemSelection;
       inlineImageAssetsForExport = previousInlineExport;
     }
     exportSvg.appendChild(root);
@@ -6442,6 +6771,11 @@
     }
     if (mode === "connect") {
       statusText.textContent = "関係作成";
+      return;
+    }
+    const multiCount = multiSelectedCount();
+    if (multiCount > 1) {
+      statusText.textContent = `${multiCount}件選択`;
       return;
     }
     if (!item) {
