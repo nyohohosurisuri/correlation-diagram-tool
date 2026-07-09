@@ -60,6 +60,9 @@
   const LINK_ROUTE_OUTER_PADDING = 80;
   const LINK_TERMINAL_STUB = 22;
   const LINK_ROUTE_CACHE_LIMIT = 1800;
+  const LINK_JUMP_RADIUS = 12;
+  const LINK_JUMP_HEIGHT = 8;
+  const LINK_JUMP_ENDPOINT_PADDING = 18;
   const PALETTE = [
     "#e53935",
     "#d81b60",
@@ -216,6 +219,8 @@
   let inlineImageAssetsForExport = false;
   let diagramRoot = null;
   let linkRouteCache = new Map();
+  let linkJumpPolylineCache = new Map();
+  let linkJumpReferenceSegmentCache = new Map();
   let cropSession = null;
   let projectStoreAvailable = null;
   let projectDialogMode = "load";
@@ -750,6 +755,8 @@
     redoBtn.disabled = isViewMode() || future.length === 0;
 
     svg.replaceChildren();
+    linkJumpPolylineCache = new Map();
+    linkJumpReferenceSegmentCache = new Map();
     const defs = createSvg("defs");
     appendArrowMarkers(defs, state.links);
     appendObjectGradients(defs);
@@ -1953,9 +1960,11 @@
         if (fromEndpoint.id === toEndpoint.id) return;
         const start = attachmentPoint(fromEndpoint.item, fromEndpoint.id, link, "from", toEndpoint.center);
         const end = attachmentPoint(toEndpoint.item, toEndpoint.id, link, "to", fromEndpoint.center);
-        appendLinkPath(g, link, `M ${start.x} ${start.y} L ${end.x} ${end.y}`, active, {
+        const points = [start, end];
+        appendLinkPath(g, link, polylinePathWithJumps(link, points), active, {
           markerEnd: link.type === "bidirectional" || link.type === "arrow",
-          markerStart: link.type === "bidirectional"
+          markerStart: link.type === "bidirectional",
+          hitPathData: polylinePath(points)
         });
         labelPoints.push(pointOnPolyline([start, end], normalizedLinkLabelPosition(link)));
       });
@@ -2050,8 +2059,8 @@
       const ys = [...sourceBranches, ...targetBranches].map((branch) => branch.join.y);
       const minY = Math.min(...ys);
       const maxY = Math.max(...ys);
-      trunkPath = `M ${trunkX} ${minY} L ${trunkX} ${maxY}`;
       trunkPoints = [{ x: trunkX, y: minY }, { x: trunkX, y: maxY }];
+      trunkPath = polylinePath(trunkPoints);
       labelPoint = pointOnPolyline(trunkPoints, normalizedLinkLabelPosition(link));
       routeHandlePoint = pointOnPolyline(trunkPoints, 0.5);
       sourceBranches.forEach((branch) => {
@@ -2151,9 +2160,9 @@
       });
     }
 
-    appendLinkPath(g, link, trunkPath, active, { lineCap: "butt" });
+    appendLinkPath(g, link, polylinePathWithJumps(link, trunkPoints), active, { lineCap: "butt", hitPathData: trunkPath });
     allBranches.forEach((branch) => {
-      appendLinkPath(g, link, branch.d, active, { ...branch, lineCap: "butt" });
+      appendLinkPath(g, link, polylinePathWithJumps(link, branch.points || []), active, { ...branch, lineCap: "butt", hitPathData: branch.d });
     });
     if (active) {
       appendLinkSegmentHandles(g, link, trunkPoints);
@@ -2175,10 +2184,11 @@
     if (fromEndpoint.id === toEndpoint.id) return;
     const geometry = singleOrthogonalGeometry(link, fromEndpoint, toEndpoint);
     const points = geometry.points;
-    appendLinkPath(g, link, polylinePath(points), active, {
+    appendLinkPath(g, link, polylinePathWithJumps(link, points), active, {
       markerStart: link.type === "bidirectional",
       markerEnd: link.type === "bidirectional" || link.type === "arrow",
-      lineCap: "butt"
+      lineCap: "butt",
+      hitPathData: polylinePath(points)
     });
     appendLinkLabel(g, link, pointOnPolyline(points, normalizedLinkLabelPosition(link)));
     if (active) appendLinkRouteHandle(g, link, pointOnPolyline(points, 0.5));
@@ -2206,7 +2216,7 @@
     g.appendChild(visible);
 
     const hit = createSvg("path", {
-      d: pathData,
+      d: markers.hitPathData || pathData,
       fill: "none",
       stroke: "transparent",
       "stroke-width": 26,
@@ -7550,6 +7560,306 @@
     const compact = compactPolyline(points);
     if (!compact.length) return "";
     return compact.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
+  }
+
+  function polylinePathWithJumps(link, points) {
+    const compact = compactPolyline(points);
+    if (compact.length < 2) return polylinePath(compact);
+    const crossingsBySegment = linkJumpCrossings(link, compact);
+    if (!crossingsBySegment.size) return polylinePath(compact);
+
+    const jumpRadius = Math.max(LINK_JUMP_RADIUS, (Number(link.width) || 1.5) * 3.5 + 7);
+    const jumpHeight = Math.max(LINK_JUMP_HEIGHT, (Number(link.width) || 1.5) * 2.4 + 5);
+    let pathData = `M ${compact[0].x} ${compact[0].y}`;
+
+    for (let index = 1; index < compact.length; index += 1) {
+      const start = compact[index - 1];
+      const end = compact[index];
+      const segmentLength = distance(start, end);
+      const crossings = crossingsBySegment.get(index - 1) || [];
+      if (segmentLength <= 0 || !crossings.length) {
+        pathData += ` L ${end.x} ${end.y}`;
+        continue;
+      }
+
+      const unit = {
+        x: (end.x - start.x) / segmentLength,
+        y: (end.y - start.y) / segmentLength
+      };
+      const normal = linkJumpNormal(start, end);
+      let lastJumpEnd = 0;
+
+      crossings.forEach((crossing) => {
+        const bridgeStartDistance = Math.max(0, crossing.distanceAlong - jumpRadius);
+        const bridgeEndDistance = Math.min(segmentLength, crossing.distanceAlong + jumpRadius);
+        if (bridgeStartDistance < lastJumpEnd + jumpRadius * 0.35) return;
+
+        const bridgeStart = pointAtSegmentDistance(start, unit, bridgeStartDistance);
+        const bridgeEnd = pointAtSegmentDistance(start, unit, bridgeEndDistance);
+        const control = {
+          x: crossing.point.x + normal.x * jumpHeight,
+          y: crossing.point.y + normal.y * jumpHeight
+        };
+        pathData += ` L ${bridgeStart.x} ${bridgeStart.y} Q ${control.x} ${control.y} ${bridgeEnd.x} ${bridgeEnd.y}`;
+        lastJumpEnd = bridgeEndDistance;
+      });
+
+      pathData += ` L ${end.x} ${end.y}`;
+    }
+
+    return pathData;
+  }
+
+  function linkJumpCrossings(link, points) {
+    const currentSegments = polylineSegments(points);
+    if (!currentSegments.length) return new Map();
+    const referenceSegments = linkJumpReferenceSegments(link);
+    if (!referenceSegments.length) return new Map();
+
+    const crossingsBySegment = new Map();
+    currentSegments.forEach((segment) => {
+      const segmentCrossings = [];
+      referenceSegments.forEach((reference) => {
+        const crossing = segmentIntersection(segment, reference);
+        if (!crossing) return;
+        const duplicate = segmentCrossings.some((candidate) => distance(candidate.point, crossing.point) < LINK_JUMP_RADIUS * 1.5);
+        if (duplicate) return;
+        segmentCrossings.push(crossing);
+      });
+      if (segmentCrossings.length) {
+        segmentCrossings.sort((a, b) => a.distanceAlong - b.distanceAlong);
+        crossingsBySegment.set(segment.index, segmentCrossings);
+      }
+    });
+    return crossingsBySegment;
+  }
+
+  function linkJumpReferenceSegments(link) {
+    const cached = linkJumpReferenceSegmentCache.get(link.id);
+    if (cached) return cached;
+
+    const linkIndex = state.links.findIndex((candidate) => candidate.id === link.id);
+    if (linkIndex <= 0) {
+      linkJumpReferenceSegmentCache.set(link.id, []);
+      return [];
+    }
+
+    const segments = [];
+    state.links.slice(0, linkIndex).forEach((referenceLink) => {
+      linkPolylinesForJumps(referenceLink).forEach((polyline, polylineIndex) => {
+        segments.push(...polylineSegments(polyline, referenceLink.id, polylineIndex));
+      });
+    });
+    linkJumpReferenceSegmentCache.set(link.id, segments);
+    return segments;
+  }
+
+  function linkPolylinesForJumps(link) {
+    const cached = linkJumpPolylineCache.get(link.id);
+    if (cached) return cached;
+    const polylines = buildLinkPolylinesForJumps(link);
+    linkJumpPolylineCache.set(link.id, polylines);
+    return polylines;
+  }
+
+  function buildLinkPolylinesForJumps(link) {
+    const fromEndpoints = getLinkEndpointEntries(link, "from");
+    const toEndpoints = getLinkEndpointEntries(link, "to");
+    if (!fromEndpoints.length || !toEndpoints.length) return [];
+
+    const route = link.route || "orthogonal";
+    if (route === "straight") {
+      const polylines = [];
+      fromEndpoints.forEach((fromEndpoint) => {
+        toEndpoints.forEach((toEndpoint) => {
+          if (fromEndpoint.id === toEndpoint.id) return;
+          const start = attachmentPoint(fromEndpoint.item, fromEndpoint.id, link, "from", toEndpoint.center);
+          const end = attachmentPoint(toEndpoint.item, toEndpoint.id, link, "to", fromEndpoint.center);
+          polylines.push([start, end]);
+        });
+      });
+      return polylines;
+    }
+
+    if (route === "curve" && fromEndpoints.length === 1 && toEndpoints.length === 1) {
+      const fromEndpoint = fromEndpoints[0];
+      const toEndpoint = toEndpoints[0];
+      const curve = linkCurveGeometry(link, fromEndpoint, toEndpoint);
+      const obstacles = linkNodeObstacles(new Set([fromEndpoint.id, toEndpoint.id]));
+      if (!quadraticCurveIntersectsObstacles(curve.start, curve.control, curve.end, obstacles)) {
+        return [approximateQuadraticPolyline(curve.start, curve.control, curve.end, 28)];
+      }
+    }
+
+    return orthogonalPolylinesForJumps(link, fromEndpoints, toEndpoints);
+  }
+
+  function linkCurveGeometry(link, fromEndpoint, toEndpoint) {
+    const start = attachmentPoint(fromEndpoint.item, fromEndpoint.id, link, "from", toEndpoint.center);
+    const end = attachmentPoint(toEndpoint.item, toEndpoint.id, link, "to", fromEndpoint.center);
+    const midpointPoint = midpoint(start, end);
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const curve = Math.min(70, Math.max(28, length * 0.14));
+    return {
+      start,
+      end,
+      control: {
+        x: midpointPoint.x + (-dy / length) * curve + normalizedLinkRouteOffsetX(link),
+        y: midpointPoint.y + (dx / length) * curve + normalizedLinkRouteOffsetY(link)
+      }
+    };
+  }
+
+  function orthogonalPolylinesForJumps(link, fromEndpoints, toEndpoints) {
+    if (fromEndpoints.length === 1 && toEndpoints.length === 1) {
+      if (fromEndpoints[0].id === toEndpoints[0].id) return [];
+      return [singleOrthogonalPolyline(link, fromEndpoints[0], toEndpoints[0])];
+    }
+
+    const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
+    const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
+    const useHorizontalTrunk = Math.abs(toCenter.x - fromCenter.x) >= Math.abs(toCenter.y - fromCenter.y);
+    const nodeObstacles = linkNodeObstacles();
+    const polylines = [];
+
+    if (useHorizontalTrunk) {
+      const estimatedYs = [...fromEndpoints, ...toEndpoints].map((endpoint) => endpoint.center.y);
+      const trunkX = chooseTrunkCoordinate(
+        "vertical",
+        (fromCenter.x + toCenter.x) / 2,
+        Math.min(...estimatedYs),
+        Math.max(...estimatedYs),
+        nodeObstacles
+      ) + normalizedLinkRouteOffsetX(link);
+      const sourceBranches = fromEndpoints.map((endpoint) => {
+        let join = { x: trunkX, y: endpoint.center.y };
+        const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "from", join);
+        const terminal = linkTerminalStubPoint(link, "from", endpoint.id, endpoint.item, anchor);
+        join = { x: trunkX, y: (terminal?.point || anchor).y };
+        return { anchor, join, terminal, obstacles: nodeObstacles };
+      });
+      const targetBranches = toEndpoints.map((endpoint) => {
+        let join = { x: trunkX, y: endpoint.center.y };
+        const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "to", join);
+        const terminal = linkTerminalStubPoint(link, "to", endpoint.id, endpoint.item, anchor);
+        join = { x: trunkX, y: (terminal?.point || anchor).y };
+        return { anchor, join, terminal, obstacles: nodeObstacles };
+      });
+      const ys = [...sourceBranches, ...targetBranches].map((branch) => branch.join.y);
+      polylines.push([{ x: trunkX, y: Math.min(...ys) }, { x: trunkX, y: Math.max(...ys) }]);
+      sourceBranches.forEach((branch) => {
+        polylines.push(orthogonalBranchPoints(branch.anchor, branch.join, "horizontal", "from", branch.obstacles, { start: branch.terminal }));
+      });
+      targetBranches.forEach((branch) => {
+        polylines.push(orthogonalBranchPoints(branch.join, branch.anchor, "horizontal", "to", branch.obstacles, { end: branch.terminal }));
+      });
+      return polylines;
+    }
+
+    const estimatedXs = [...fromEndpoints, ...toEndpoints].map((endpoint) => endpoint.center.x);
+    const trunkY = chooseTrunkCoordinate(
+      "horizontal",
+      (fromCenter.y + toCenter.y) / 2,
+      Math.min(...estimatedXs),
+      Math.max(...estimatedXs),
+      nodeObstacles
+    ) + normalizedLinkRouteOffsetY(link);
+    const sourceBranches = fromEndpoints.map((endpoint) => {
+      let join = { x: endpoint.center.x, y: trunkY };
+      const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "from", join);
+      const terminal = linkTerminalStubPoint(link, "from", endpoint.id, endpoint.item, anchor);
+      join = { x: (terminal?.point || anchor).x, y: trunkY };
+      return { anchor, join, terminal, obstacles: nodeObstacles };
+    });
+    const targetBranches = toEndpoints.map((endpoint) => {
+      let join = { x: endpoint.center.x, y: trunkY };
+      const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "to", join);
+      const terminal = linkTerminalStubPoint(link, "to", endpoint.id, endpoint.item, anchor);
+      join = { x: (terminal?.point || anchor).x, y: trunkY };
+      return { anchor, join, terminal, obstacles: nodeObstacles };
+    });
+    const xs = [...sourceBranches, ...targetBranches].map((branch) => branch.join.x);
+    polylines.push([{ x: Math.min(...xs), y: trunkY }, { x: Math.max(...xs), y: trunkY }]);
+    sourceBranches.forEach((branch) => {
+      polylines.push(orthogonalBranchPoints(branch.anchor, branch.join, "vertical", "from", branch.obstacles, { start: branch.terminal }));
+    });
+    targetBranches.forEach((branch) => {
+      polylines.push(orthogonalBranchPoints(branch.join, branch.anchor, "vertical", "to", branch.obstacles, { end: branch.terminal }));
+    });
+    return polylines;
+  }
+
+  function polylineSegments(points, linkId = "", polylineIndex = 0) {
+    const compact = compactPolyline(points);
+    const segments = [];
+    for (let index = 1; index < compact.length; index += 1) {
+      const start = compact[index - 1];
+      const end = compact[index];
+      const length = distance(start, end);
+      if (length <= 0.001) continue;
+      segments.push({
+        linkId,
+        polylineIndex,
+        index: index - 1,
+        start,
+        end,
+        length
+      });
+    }
+    return segments;
+  }
+
+  function segmentIntersection(segment, reference) {
+    const p = segment.start;
+    const r = { x: segment.end.x - segment.start.x, y: segment.end.y - segment.start.y };
+    const q = reference.start;
+    const s = { x: reference.end.x - reference.start.x, y: reference.end.y - reference.start.y };
+    const cross = crossProduct(r, s);
+    if (Math.abs(cross) < 0.001) return null;
+
+    const qp = { x: q.x - p.x, y: q.y - p.y };
+    const t = crossProduct(qp, s) / cross;
+    const u = crossProduct(qp, r) / cross;
+    if (t <= 0.001 || t >= 0.999 || u <= 0.001 || u >= 0.999) return null;
+
+    const distanceAlong = t * segment.length;
+    const referenceDistanceAlong = u * reference.length;
+    if (distanceAlong < LINK_JUMP_ENDPOINT_PADDING || segment.length - distanceAlong < LINK_JUMP_ENDPOINT_PADDING) return null;
+    if (referenceDistanceAlong < LINK_JUMP_ENDPOINT_PADDING || reference.length - referenceDistanceAlong < LINK_JUMP_ENDPOINT_PADDING) return null;
+
+    return {
+      point: {
+        x: p.x + r.x * t,
+        y: p.y + r.y * t
+      },
+      distanceAlong
+    };
+  }
+
+  function crossProduct(a, b) {
+    return a.x * b.y - a.y * b.x;
+  }
+
+  function pointAtSegmentDistance(start, unit, distanceAlong) {
+    return {
+      x: start.x + unit.x * distanceAlong,
+      y: start.y + unit.y * distanceAlong
+    };
+  }
+
+  function linkJumpNormal(start, end) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy) || 1;
+    let normal = { x: -dy / length, y: dx / length };
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      if (normal.y > 0) normal = { x: -normal.x, y: -normal.y };
+    } else if (normal.x < 0) {
+      normal = { x: -normal.x, y: -normal.y };
+    }
+    return normal;
   }
 
   function itemCenter(item) {
