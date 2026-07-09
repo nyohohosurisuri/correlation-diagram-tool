@@ -720,6 +720,14 @@ body[data-tools-collapsed="true"] .tools-toggle {
   background: #f0f2ef;
 }
 
+.endpoint-search-status {
+  min-height: 18px;
+  margin-top: -2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .endpoint-connected-list,
 .endpoint-candidate-list {
   display: grid;
@@ -762,6 +770,10 @@ body[data-tools-collapsed="true"] .tools-toggle {
   min-height: 30px;
   color: var(--ink);
   font-size: 13px;
+}
+
+.endpoint-option[hidden] {
+  display: none !important;
 }
 
 .endpoint-choice {
@@ -1724,6 +1736,13 @@ body[data-tools-collapsed="true"] .tools-toggle {
     min-height: 40px;
     margin-bottom: 6px;
     font-size: 14px;
+  }
+
+  .endpoint-search-status {
+    min-height: 20px;
+    margin-top: -3px;
+    margin-bottom: 5px;
+    font-size: 13px;
   }
 
   .endpoint-connected-list,

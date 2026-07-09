@@ -3659,47 +3659,89 @@
     const searchInput = el("input", {
       type: "search",
       class: "endpoint-search",
-      placeholder: "名前・肩書きで検索"
+      placeholder: "名前・肩書きで検索",
+      "aria-label": "接続先を検索"
     });
     wrap.appendChild(searchInput);
+    const searchStatus = el("div", {
+      class: "endpoint-search-status",
+      role: "status",
+      "aria-live": "polite"
+    }, "名前または肩書きを入力すると候補を絞り込みます");
+    wrap.appendChild(searchStatus);
     const connectedWrap = el("div", { class: "endpoint-connected-list" });
+    const connectedRows = [];
+    let connectedEmpty = null;
     if (connected.length) {
       connected.forEach((candidate) => {
-        connectedWrap.appendChild(endpointOptionRow(link, side, candidate, true, current, opposite));
+        const row = endpointOptionRow(link, side, candidate, true, current, opposite);
+        connectedRows.push(row);
+        connectedWrap.appendChild(row);
       });
+      connectedEmpty = el("div", { class: "endpoint-empty endpoint-filter-empty", hidden: true }, "接続中の項目に一致するものはありません");
+      connectedWrap.appendChild(connectedEmpty);
     } else {
       connectedWrap.appendChild(el("div", { class: "endpoint-empty" }, "接続中の項目はありません"));
     }
     wrap.appendChild(connectedWrap);
+    let details = null;
+    let candidateSummary = null;
+    let candidateRows = [];
+    let filterEmpty = null;
     if (unconnected.length) {
-      const details = el("details", { class: "endpoint-candidates" });
-      details.appendChild(el("summary", {}, `候補を表示（${unconnected.length}件）`));
+      details = el("details", { class: "endpoint-candidates" });
+      candidateSummary = el("summary", {}, `候補を表示（${unconnected.length}件）`);
+      details.appendChild(candidateSummary);
       const candidateWrap = el("div", { class: "endpoint-candidate-list" });
-      const candidateRows = [];
       unconnected.forEach((candidate) => {
         const row = endpointOptionRow(link, side, candidate, false, current, opposite);
         candidateRows.push(row);
         candidateWrap.appendChild(row);
       });
-      const filterEmpty = el("div", { class: "endpoint-empty endpoint-filter-empty", hidden: true }, "該当する候補はありません");
+      filterEmpty = el("div", { class: "endpoint-empty endpoint-filter-empty", hidden: true }, "該当する候補はありません");
       candidateWrap.appendChild(filterEmpty);
       details.appendChild(candidateWrap);
       wrap.appendChild(details);
-      searchInput.addEventListener("input", () => {
-        const query = normalizeEndpointSearchQuery(searchInput.value);
-        if (query) details.open = true;
-        let visibleCount = 0;
-        candidateRows.forEach((row) => {
-          const matched = !query || row.dataset.searchText.includes(query);
-          row.hidden = !matched;
-          if (matched) visibleCount += 1;
-        });
-        filterEmpty.hidden = visibleCount > 0;
-      });
     }
+    const applySearch = () => {
+      const query = normalizeEndpointSearchQuery(searchInput.value);
+      let connectedVisibleCount = 0;
+      let candidateVisibleCount = 0;
+      connectedRows.forEach((row) => {
+        const matched = !query || row.dataset.searchText.includes(query);
+        row.hidden = !matched;
+        if (matched) connectedVisibleCount += 1;
+      });
+      candidateRows.forEach((row) => {
+        const matched = !query || row.dataset.searchText.includes(query);
+        row.hidden = !matched;
+        if (matched) candidateVisibleCount += 1;
+      });
+      if (connectedEmpty) {
+        connectedEmpty.hidden = !query || connectedVisibleCount > 0;
+      }
+      if (filterEmpty) {
+        filterEmpty.hidden = !query || candidateVisibleCount > 0;
+      }
+      if (candidateSummary) {
+        candidateSummary.textContent = query
+          ? `検索結果：${candidateVisibleCount} / ${unconnected.length}件`
+          : `候補を表示（${unconnected.length}件）`;
+      }
+      if (query) {
+        details.open = true;
+        const enteredName = searchInput.value.trim();
+        searchStatus.textContent = `「${enteredName}」の検索結果：接続中 ${connectedVisibleCount}件、候補 ${candidateVisibleCount}件`;
+      } else {
+        searchStatus.textContent = "名前または肩書きを入力すると候補を絞り込みます";
+      }
+    };
+    searchInput.addEventListener("input", applySearch);
+    searchInput.addEventListener("search", applySearch);
     if (!unconnected.length) {
       searchInput.disabled = true;
       searchInput.placeholder = "候補はありません";
+      searchStatus.textContent = "追加できる候補はありません";
     }
     return wrap;
   }
