@@ -37,6 +37,7 @@
   const GROUP_MAX_WIDTH = 1600;
   const GROUP_MAX_HEIGHT = 1200;
   const GROUP_TITLE_DEFAULT_FONT_SIZE = 15;
+  const GROUP_TITLE_TAB_OVERLAP_RATIO = 0.64;
   const DEFAULT_SETTINGS = {
     groupMoveContents: false
   };
@@ -357,7 +358,8 @@
           gradient: defaultGradient("#61a875"),
           titleFontSize: GROUP_TITLE_DEFAULT_FONT_SIZE,
           titleFontFamily: "mincho",
-          titleTextColor: "#202329"
+          titleTextColor: "#202329",
+          titleBackgroundOpacity: 1
         }
       ],
       texts: [],
@@ -455,6 +457,7 @@
         titleFontSize: GROUP_TITLE_DEFAULT_FONT_SIZE,
         titleFontFamily: "mincho",
         titleTextColor: "#202329",
+        titleBackgroundOpacity: 1,
         titleOutlineColor: "#ffffff",
         titleOutlineWidth: 0,
         shape: "rect",
@@ -918,6 +921,7 @@
     state.groups.forEach((group) => {
       appendObjectGradient(defs, group, "group", 1);
       appendObjectGradient(defs, group, "group-bg", normalizeGroupFillOpacity(group.fillOpacity));
+      appendObjectGradient(defs, group, "group-title", normalizeGroupTitleBackgroundOpacity(group.titleBackgroundOpacity));
     });
   }
 
@@ -1111,6 +1115,7 @@
     const active = isSelected("group", group.id) || isMultiSelectedItem("group", group.id);
     const titleFontSize = normalizeGroupTitleFontSize(group.titleFontSize);
     const titleOutlineWidth = normalizeGroupTitleOutlineWidth(group.titleOutlineWidth);
+    const titleBackgroundOpacity = normalizeGroupTitleBackgroundOpacity(group.titleBackgroundOpacity);
     const shape = normalizeGroupShape(group.shape);
     const fillOpacity = normalizeGroupFillOpacity(group.fillOpacity);
     const titleTab = groupTitleTabMetrics(group, titleFontSize);
@@ -1148,7 +1153,7 @@
       width: titleTab.w,
       height: titleTab.h,
       rx: Math.min(8, titleTab.h / 3),
-      fill: objectGradientFill(group, "group"),
+      fill: objectGradientFill(group, "group-title", titleBackgroundOpacity),
       stroke: active ? "#202329" : objectGradientFill(group, "group"),
       "stroke-width": active ? 3 : 2,
       "stroke-linejoin": "round"
@@ -1202,7 +1207,7 @@
     const x = shape === "l-top-left" ? group.x + notchW + 10 : group.x + 12;
     return {
       x,
-      y: group.y - height + 2,
+      y: group.y - height + Math.round(height * GROUP_TITLE_TAB_OVERLAP_RATIO),
       w: width,
       h: height
     };
@@ -3429,6 +3434,10 @@
       scheduleChange();
     })));
     form.appendChild(field("フォント", groupTitleFontSelect(group)));
+    form.appendChild(field("見出し背景透明度", rangeWithValue(Math.round(normalizeGroupTitleBackgroundOpacity(group.titleBackgroundOpacity) * 100), 0, 100, (value) => {
+      group.titleBackgroundOpacity = clamp(Number(value) || 0, 0, 100) / 100;
+      scheduleChange();
+    }, 1, "%")));
     form.appendChild(collapsedFieldSection("グループ名の色/フチ", [
       field("文字色", swatches(groupTitleTextColor(group), (value) => {
         group.titleTextColor = value;
@@ -6756,6 +6765,7 @@
         titleFontSize: normalizeGroupTitleFontSize(group.titleFontSize),
         titleFontFamily: normalizeGroupTitleFontId(group.titleFontFamily),
         titleTextColor: typeof group.titleTextColor === "string" ? group.titleTextColor : "#202329",
+        titleBackgroundOpacity: normalizeGroupTitleBackgroundOpacity(group.titleBackgroundOpacity),
         titleOutlineColor: normalizeColorValue(group.titleOutlineColor, "#ffffff"),
         titleOutlineWidth: normalizeGroupTitleOutlineWidth(group.titleOutlineWidth),
         shape: normalizeGroupShape(group.shape),
@@ -6851,6 +6861,11 @@
 
   function normalizeGroupTitleOutlineWidth(value) {
     return clamp(Number(value) || 0, 0, 8);
+  }
+
+  function normalizeGroupTitleBackgroundOpacity(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? clamp(number, 0, 1) : 1;
   }
 
   function normalizeGroupShape(value) {
