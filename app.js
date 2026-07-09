@@ -2033,36 +2033,16 @@
         Math.max(...estimatedYs),
         nodeObstacles
       ) + normalizedLinkRouteOffsetX(link);
-      const sourceBranches = fromEndpoints.map((endpoint) => {
-        let join = { x: trunkX, y: endpoint.center.y };
-        const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "from", join);
-        const terminal = linkTerminalStubPoint(link, "from", endpoint.id, endpoint.item, anchor);
-        if (terminal) terminalHandles.push({ point: terminal.point, side: "from", endpointId: endpoint.id, axis: terminal.axis });
-        join = { x: trunkX, y: (terminal?.point || anchor).y };
-        return {
-          anchor,
-          join,
-          side: "from",
-          endpointId: endpoint.id,
-          terminal,
-          obstacles: nodeObstacles
-        };
-      });
-      const targetBranches = toEndpoints.map((endpoint) => {
-        let join = { x: trunkX, y: endpoint.center.y };
-        const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "to", join);
-        const terminal = linkTerminalStubPoint(link, "to", endpoint.id, endpoint.item, anchor);
-        if (terminal) terminalHandles.push({ point: terminal.point, side: "to", endpointId: endpoint.id, axis: terminal.axis });
-        join = { x: trunkX, y: (terminal?.point || anchor).y };
-        return {
-          start: join,
-          join,
-          anchor,
-          side: "to",
-          endpointId: endpoint.id,
-          terminal,
-          obstacles: nodeObstacles
-        };
+      const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
+        link,
+        fromEndpoints,
+        toEndpoints,
+        "vertical",
+        trunkX,
+        nodeObstacles
+      );
+      [...sourceBranches, ...targetBranches].forEach((branch) => {
+        if (branch.terminal) terminalHandles.push({ point: branch.terminal.point, side: branch.side, endpointId: branch.endpointId, axis: branch.terminal.axis });
       });
       const ys = [...sourceBranches, ...targetBranches].map((branch) => branch.join.y);
       const minY = Math.min(...ys);
@@ -2072,10 +2052,9 @@
       labelPoint = pointOnPolyline(trunkPoints, normalizedLinkLabelPosition(link));
       routeHandlePoint = pointOnPolyline(trunkPoints, 0.5);
       sourceBranches.forEach((branch) => {
-        const points = orthogonalBranchPoints(branch.anchor, branch.join, "horizontal", "from", branch.obstacles, { start: branch.terminal });
         allBranches.push({
-          d: polylinePath(points),
-          points,
+          d: polylinePath(branch.points),
+          points: branch.points,
           side: branch.side,
           endpointId: branch.endpointId,
           terminal: branch.terminal,
@@ -2084,10 +2063,9 @@
         });
       });
       targetBranches.forEach((branch) => {
-        const points = orthogonalBranchPoints(branch.join, branch.anchor, "horizontal", "to", branch.obstacles, { end: branch.terminal });
         allBranches.push({
-          d: polylinePath(points),
-          points,
+          d: polylinePath(branch.points),
+          points: branch.points,
           side: branch.side,
           endpointId: branch.endpointId,
           terminal: branch.terminal,
@@ -2104,36 +2082,16 @@
         Math.max(...estimatedXs),
         nodeObstacles
       ) + normalizedLinkRouteOffsetY(link);
-      const sourceBranches = fromEndpoints.map((endpoint) => {
-        let join = { x: endpoint.center.x, y: trunkY };
-        const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "from", join);
-        const terminal = linkTerminalStubPoint(link, "from", endpoint.id, endpoint.item, anchor);
-        if (terminal) terminalHandles.push({ point: terminal.point, side: "from", endpointId: endpoint.id, axis: terminal.axis });
-        join = { x: (terminal?.point || anchor).x, y: trunkY };
-        return {
-          anchor,
-          join,
-          side: "from",
-          endpointId: endpoint.id,
-          terminal,
-          obstacles: nodeObstacles
-        };
-      });
-      const targetBranches = toEndpoints.map((endpoint) => {
-        let join = { x: endpoint.center.x, y: trunkY };
-        const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "to", join);
-        const terminal = linkTerminalStubPoint(link, "to", endpoint.id, endpoint.item, anchor);
-        if (terminal) terminalHandles.push({ point: terminal.point, side: "to", endpointId: endpoint.id, axis: terminal.axis });
-        join = { x: (terminal?.point || anchor).x, y: trunkY };
-        return {
-          start: join,
-          join,
-          anchor,
-          side: "to",
-          endpointId: endpoint.id,
-          terminal,
-          obstacles: nodeObstacles
-        };
+      const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
+        link,
+        fromEndpoints,
+        toEndpoints,
+        "horizontal",
+        trunkY,
+        nodeObstacles
+      );
+      [...sourceBranches, ...targetBranches].forEach((branch) => {
+        if (branch.terminal) terminalHandles.push({ point: branch.terminal.point, side: branch.side, endpointId: branch.endpointId, axis: branch.terminal.axis });
       });
       const xs = [...sourceBranches, ...targetBranches].map((branch) => branch.join.x);
       const minX = Math.min(...xs);
@@ -2143,10 +2101,9 @@
       labelPoint = pointOnPolyline(trunkPoints, normalizedLinkLabelPosition(link));
       routeHandlePoint = pointOnPolyline(trunkPoints, 0.5);
       sourceBranches.forEach((branch) => {
-        const points = orthogonalBranchPoints(branch.anchor, branch.join, "vertical", "from", branch.obstacles, { start: branch.terminal });
         allBranches.push({
-          d: polylinePath(points),
-          points,
+          d: polylinePath(branch.points),
+          points: branch.points,
           side: branch.side,
           endpointId: branch.endpointId,
           terminal: branch.terminal,
@@ -2155,10 +2112,9 @@
         });
       });
       targetBranches.forEach((branch) => {
-        const points = orthogonalBranchPoints(branch.join, branch.anchor, "vertical", "to", branch.obstacles, { end: branch.terminal });
         allBranches.push({
-          d: polylinePath(points),
-          points,
+          d: polylinePath(branch.points),
+          points: branch.points,
           side: branch.side,
           endpointId: branch.endpointId,
           terminal: branch.terminal,
@@ -2620,14 +2576,15 @@
         Math.max(...estimatedYs),
         nodeObstacles
       ) + normalizedLinkRouteOffsetX(link);
-      const ys = [
-        ...fromEndpoints.map((endpoint) => ({ endpoint, side: "from" })),
-        ...toEndpoints.map((endpoint) => ({ endpoint, side: "to" }))
-      ].map(({ endpoint, side }) => {
-        const anchor = attachmentPoint(endpoint.item, endpoint.id, link, side, { x: trunkX, y: endpoint.center.y });
-        const terminal = linkTerminalStubPoint(link, side, endpoint.id, endpoint.item, anchor);
-        return (terminal?.point || anchor).y;
-      });
+      const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
+        link,
+        fromEndpoints,
+        toEndpoints,
+        "vertical",
+        trunkX,
+        nodeObstacles
+      );
+      const ys = [...sourceBranches, ...targetBranches].map((branch) => branch.join.y);
       return [{ x: trunkX, y: Math.min(...ys) }, { x: trunkX, y: Math.max(...ys) }];
     }
     const estimatedXs = [...fromEndpoints, ...toEndpoints].map((endpoint) => endpoint.center.x);
@@ -2638,14 +2595,15 @@
       Math.max(...estimatedXs),
       nodeObstacles
     ) + normalizedLinkRouteOffsetY(link);
-    const xs = [
-      ...fromEndpoints.map((endpoint) => ({ endpoint, side: "from" })),
-      ...toEndpoints.map((endpoint) => ({ endpoint, side: "to" }))
-    ].map(({ endpoint, side }) => {
-      const anchor = attachmentPoint(endpoint.item, endpoint.id, link, side, { x: endpoint.center.x, y: trunkY });
-      const terminal = linkTerminalStubPoint(link, side, endpoint.id, endpoint.item, anchor);
-      return (terminal?.point || anchor).x;
-    });
+    const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
+      link,
+      fromEndpoints,
+      toEndpoints,
+      "horizontal",
+      trunkY,
+      nodeObstacles
+    );
+    const xs = [...sourceBranches, ...targetBranches].map((branch) => branch.join.x);
     return [{ x: Math.min(...xs), y: trunkY }, { x: Math.max(...xs), y: trunkY }];
   }
 
@@ -7696,6 +7654,77 @@
     return compactPolyline(points);
   }
 
+  function resolveMultiLinkBranches(link, fromEndpoints, toEndpoints, trunkOrientation, trunkCoordinate, obstacles) {
+    return {
+      sourceBranches: fromEndpoints.map((endpoint) => resolveMultiLinkBranch(
+        link,
+        endpoint,
+        "from",
+        trunkOrientation,
+        trunkCoordinate,
+        obstacles
+      )),
+      targetBranches: toEndpoints.map((endpoint) => resolveMultiLinkBranch(
+        link,
+        endpoint,
+        "to",
+        trunkOrientation,
+        trunkCoordinate,
+        obstacles
+      ))
+    };
+  }
+
+  function resolveMultiLinkBranch(link, endpoint, side, trunkOrientation, trunkCoordinate, obstacles) {
+    const toward = trunkOrientation === "vertical"
+      ? { x: trunkCoordinate, y: endpoint.center.y }
+      : { x: endpoint.center.x, y: trunkCoordinate };
+    const anchor = attachmentPoint(endpoint.item, endpoint.id, link, side, toward);
+    const terminal = linkTerminalStubPoint(link, side, endpoint.id, endpoint.item, anchor);
+    const terminalPoint = terminal?.point || anchor;
+    const initialJoin = trunkOrientation === "vertical"
+      ? { x: trunkCoordinate, y: terminalPoint.y }
+      : { x: terminalPoint.x, y: trunkCoordinate };
+    const branchAxis = trunkOrientation === "vertical" ? "horizontal" : "vertical";
+    const branchPoints = (join) => side === "from"
+      ? orthogonalBranchPoints(anchor, join, branchAxis, side, obstacles, { start: terminal })
+      : orthogonalBranchPoints(join, anchor, branchAxis, side, obstacles, { end: terminal });
+    const settled = settleMultiLinkBranchJoin(branchPoints, initialJoin, side, trunkOrientation);
+    return {
+      anchor,
+      join: settled.join,
+      side,
+      endpointId: endpoint.id,
+      terminal,
+      obstacles,
+      points: settled.points
+    };
+  }
+
+  function settleMultiLinkBranchJoin(buildPoints, initialJoin, side, trunkOrientation) {
+    let join = initialJoin;
+    let points = buildPoints(join);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const approach = side === "from" ? points[points.length - 2] : points[1];
+      const nextJoin = branchJoinFromApproach(join, approach, trunkOrientation);
+      if (!nextJoin || samePoint(nextJoin, join)) break;
+      join = nextJoin;
+      points = buildPoints(join);
+    }
+    return { join, points };
+  }
+
+  function branchJoinFromApproach(join, approach, trunkOrientation) {
+    if (!approach) return null;
+    if (trunkOrientation === "horizontal" && sameY(join, approach) && !sameX(join, approach)) {
+      return { x: approach.x, y: join.y };
+    }
+    if (trunkOrientation === "vertical" && sameX(join, approach) && !sameY(join, approach)) {
+      return { x: join.x, y: approach.y };
+    }
+    return null;
+  }
+
   function terminalStubPoint(item, anchor) {
     const onLeft = sameCoord(anchor.x, item.x);
     const onRight = sameCoord(anchor.x, item.x + item.w);
@@ -8300,27 +8329,21 @@
         Math.max(...estimatedYs),
         nodeObstacles
       ) + normalizedLinkRouteOffsetX(link);
-      const sourceBranches = fromEndpoints.map((endpoint) => {
-        let join = { x: trunkX, y: endpoint.center.y };
-        const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "from", join);
-        const terminal = linkTerminalStubPoint(link, "from", endpoint.id, endpoint.item, anchor);
-        join = { x: trunkX, y: (terminal?.point || anchor).y };
-        return { anchor, join, terminal, obstacles: nodeObstacles };
-      });
-      const targetBranches = toEndpoints.map((endpoint) => {
-        let join = { x: trunkX, y: endpoint.center.y };
-        const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "to", join);
-        const terminal = linkTerminalStubPoint(link, "to", endpoint.id, endpoint.item, anchor);
-        join = { x: trunkX, y: (terminal?.point || anchor).y };
-        return { anchor, join, terminal, obstacles: nodeObstacles };
-      });
+      const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
+        link,
+        fromEndpoints,
+        toEndpoints,
+        "vertical",
+        trunkX,
+        nodeObstacles
+      );
       const ys = [...sourceBranches, ...targetBranches].map((branch) => branch.join.y);
       polylines.push([{ x: trunkX, y: Math.min(...ys) }, { x: trunkX, y: Math.max(...ys) }]);
       sourceBranches.forEach((branch) => {
-        polylines.push(orthogonalBranchPoints(branch.anchor, branch.join, "horizontal", "from", branch.obstacles, { start: branch.terminal }));
+        polylines.push(branch.points);
       });
       targetBranches.forEach((branch) => {
-        polylines.push(orthogonalBranchPoints(branch.join, branch.anchor, "horizontal", "to", branch.obstacles, { end: branch.terminal }));
+        polylines.push(branch.points);
       });
       return polylines;
     }
@@ -8333,27 +8356,21 @@
       Math.max(...estimatedXs),
       nodeObstacles
     ) + normalizedLinkRouteOffsetY(link);
-    const sourceBranches = fromEndpoints.map((endpoint) => {
-      let join = { x: endpoint.center.x, y: trunkY };
-      const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "from", join);
-      const terminal = linkTerminalStubPoint(link, "from", endpoint.id, endpoint.item, anchor);
-      join = { x: (terminal?.point || anchor).x, y: trunkY };
-      return { anchor, join, terminal, obstacles: nodeObstacles };
-    });
-    const targetBranches = toEndpoints.map((endpoint) => {
-      let join = { x: endpoint.center.x, y: trunkY };
-      const anchor = attachmentPoint(endpoint.item, endpoint.id, link, "to", join);
-      const terminal = linkTerminalStubPoint(link, "to", endpoint.id, endpoint.item, anchor);
-      join = { x: (terminal?.point || anchor).x, y: trunkY };
-      return { anchor, join, terminal, obstacles: nodeObstacles };
-    });
+    const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
+      link,
+      fromEndpoints,
+      toEndpoints,
+      "horizontal",
+      trunkY,
+      nodeObstacles
+    );
     const xs = [...sourceBranches, ...targetBranches].map((branch) => branch.join.x);
     polylines.push([{ x: Math.min(...xs), y: trunkY }, { x: Math.max(...xs), y: trunkY }]);
     sourceBranches.forEach((branch) => {
-      polylines.push(orthogonalBranchPoints(branch.anchor, branch.join, "vertical", "from", branch.obstacles, { start: branch.terminal }));
+      polylines.push(branch.points);
     });
     targetBranches.forEach((branch) => {
-      polylines.push(orthogonalBranchPoints(branch.join, branch.anchor, "vertical", "to", branch.obstacles, { end: branch.terminal }));
+      polylines.push(branch.points);
     });
     return polylines;
   }
