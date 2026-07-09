@@ -8,6 +8,7 @@
   const IMAGE_ASSET_REF_PREFIX = "asset:";
   const HISTORY_LIMIT = 40;
   const AUTO_SAVE_INTERVAL_MS = 60000;
+  const INTERACTION_RENDER_INTERVAL_MS = 42;
   const BOOT_PROJECT_LOAD_TIMEOUT_MS = 2500;
   const STATIC_PWA_MODE = isStaticPwaMode();
   const DOUBLE_TAP_TIMEOUT_MS = 520;
@@ -217,6 +218,11 @@
   let autoSaveTimer = 0;
   let diagramRenderFrame = 0;
   let viewportRenderFrame = 0;
+  let interactionRenderTimer = 0;
+  let lastInteractionRenderAt = 0;
+  let requestedDiagramRenderFast = false;
+  let fastDiagramRender = false;
+  let selectionListSignature = "";
   let autoSaveInFlight = false;
   let lastAutoSaveSnapshot = "";
   let autoSaveEnabled = loadAutoSaveEnabled();
@@ -754,46 +760,55 @@
     updateModeControls();
   }
 
-  function renderDiagram() {
+  function renderDiagram(options = {}) {
     cancelScheduledRenders();
+    const previousFastDiagramRender = fastDiagramRender;
+    fastDiagramRender = options.fast === true;
+    if (fastDiagramRender) lastInteractionRenderAt = performance.now();
     connectBtn.setAttribute("aria-pressed", mode === "connect" ? "true" : "false");
     zoomLabel.value = `${Math.round(state.viewport.scale * 100)}%`;
     undoBtn.disabled = isViewMode() || history.length <= 1;
     redoBtn.disabled = isViewMode() || future.length === 0;
 
-    svg.replaceChildren();
-    linkJumpPolylineCache = new Map();
-    linkJumpReferenceSegmentCache = new Map();
-    const defs = createSvg("defs");
-    appendArrowMarkers(defs, state.links);
-    appendObjectGradients(defs);
-    svg.appendChild(defs);
+    try {
+      svg.replaceChildren();
+      if (!fastDiagramRender) {
+        linkJumpPolylineCache = new Map();
+        linkJumpReferenceSegmentCache = new Map();
+      }
+      const defs = createSvg("defs");
+      appendArrowMarkers(defs, state.links);
+      appendObjectGradients(defs);
+      svg.appendChild(defs);
 
-    const root = createSvg("g", {
-      "data-diagram-root": "true",
-      transform: `translate(${state.viewport.x} ${state.viewport.y}) scale(${state.viewport.scale})`
-    });
-    diagramRoot = root;
-    svg.appendChild(root);
+      const root = createSvg("g", {
+        "data-diagram-root": "true",
+        transform: `translate(${state.viewport.x} ${state.viewport.y}) scale(${state.viewport.scale})`
+      });
+      diagramRoot = root;
+      svg.appendChild(root);
 
-    const linkLabelLayer = createSvg("g", { "data-layer": "link-labels" });
-    state.groups.forEach((group) => root.appendChild(renderGroup(group)));
-    state.links.forEach((link) => appendLinkWithLiftedLabel(root, linkLabelLayer, link));
-    if (drag?.type === "connect") root.appendChild(renderConnectionPreview(drag));
-    root.appendChild(linkLabelLayer);
-    state.nodes.forEach((node) => root.appendChild(renderNode(node)));
-    state.shapes.forEach((shape) => root.appendChild(renderShape(shape)));
-    state.images.forEach((imageItem) => root.appendChild(renderInsertedImage(imageItem)));
-    state.legends.forEach((legend) => root.appendChild(renderLegend(legend)));
-    state.texts.forEach((textItem) => root.appendChild(renderTextItem(textItem)));
-    if (drag?.type === "marquee") root.appendChild(renderMarqueeSelection(drag));
-    state.groups.forEach((group) => {
-      const handle = renderGroupResizeHandle(group);
-      if (handle) root.appendChild(handle);
-      const notchHandle = renderGroupNotchHandle(group);
-      if (notchHandle) root.appendChild(notchHandle);
-    });
-    appendSelectedLinkAnchorHandles(root);
+      const linkLabelLayer = createSvg("g", { "data-layer": "link-labels" });
+      state.groups.forEach((group) => root.appendChild(renderGroup(group)));
+      state.links.forEach((link) => appendLinkWithLiftedLabel(root, linkLabelLayer, link));
+      if (drag?.type === "connect") root.appendChild(renderConnectionPreview(drag));
+      root.appendChild(linkLabelLayer);
+      state.nodes.forEach((node) => root.appendChild(renderNode(node)));
+      state.shapes.forEach((shape) => root.appendChild(renderShape(shape)));
+      state.images.forEach((imageItem) => root.appendChild(renderInsertedImage(imageItem)));
+      state.legends.forEach((legend) => root.appendChild(renderLegend(legend)));
+      state.texts.forEach((textItem) => root.appendChild(renderTextItem(textItem)));
+      if (drag?.type === "marquee") root.appendChild(renderMarqueeSelection(drag));
+      state.groups.forEach((group) => {
+        const handle = renderGroupResizeHandle(group);
+        if (handle) root.appendChild(handle);
+        const notchHandle = renderGroupNotchHandle(group);
+        if (notchHandle) root.appendChild(notchHandle);
+      });
+      appendSelectedLinkAnchorHandles(root);
+    } finally {
+      fastDiagramRender = previousFastDiagramRender;
+    }
   }
 
   function appendLinkWithLiftedLabel(root, labelLayer, link) {
@@ -813,18 +828,47 @@
       window.cancelAnimationFrame(viewportRenderFrame);
       viewportRenderFrame = 0;
     }
+    if (interactionRenderTimer) {
+      window.clearTimeout(interactionRenderTimer);
+      interactionRenderTimer = 0;
+    }
+    requestedDiagramRenderFast = false;
   }
 
-  function requestDiagramRender() {
-    if (diagramRenderFrame) return;
+  function requestDiagramRender(options = {}) {
+    const fast = options.fast === true;
+    if (diagramRenderFrame) {
+      requestedDiagramRenderFast = requestedDiagramRenderFast && fast;
+      return;
+    }
     if (viewportRenderFrame) {
       window.cancelAnimationFrame(viewportRenderFrame);
       viewportRenderFrame = 0;
     }
+    if (!fast && interactionRenderTimer) {
+      window.clearTimeout(interactionRenderTimer);
+      interactionRenderTimer = 0;
+    }
+    requestedDiagramRenderFast = fast;
     diagramRenderFrame = window.requestAnimationFrame(() => {
       diagramRenderFrame = 0;
-      renderDiagram();
+      const renderFast = requestedDiagramRenderFast;
+      requestedDiagramRenderFast = false;
+      renderDiagram({ fast: renderFast });
     });
+  }
+
+  function requestInteractionDiagramRender() {
+    if (diagramRenderFrame || interactionRenderTimer) return;
+    const wait = INTERACTION_RENDER_INTERVAL_MS - (performance.now() - lastInteractionRenderAt);
+    if (wait > 0) {
+      interactionRenderTimer = window.setTimeout(() => {
+        interactionRenderTimer = 0;
+        requestDiagramRender({ fast: true });
+      }, wait);
+      return;
+    }
+    requestDiagramRender({ fast: true });
   }
 
   function requestViewportRender() {
@@ -1993,7 +2037,7 @@
       x: midpointPoint.x + normal.x * curve + normalizedLinkRouteOffsetX(link),
       y: midpointPoint.y + normal.y * curve + normalizedLinkRouteOffsetY(link)
     };
-    const obstacles = linkConnectionObstacles([fromEndpoint, toEndpoint]);
+    const obstacles = fastDiagramRender ? [] : linkConnectionObstacles([fromEndpoint, toEndpoint]);
     if (quadraticCurveIntersectsObstacles(start, control, end, obstacles)) {
       renderOrthogonalLink(g, link, [fromEndpoint], [toEndpoint], active);
       return;
@@ -2016,7 +2060,7 @@
     const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
     const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
     const useHorizontalTrunk = resolveLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`);
-    const nodeObstacles = linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
+    const nodeObstacles = fastDiagramRender ? [] : linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
     const allBranches = [];
     let trunkPath = "";
     let labelPoint;
@@ -2768,6 +2812,9 @@
         color: legend.borderColor || "#202329"
       }))
     ];
+    const signature = selectionListStateSignature(items);
+    if (signature === selectionListSignature) return;
+    selectionListSignature = signature;
     selectionList.replaceChildren();
     if (!items.length) {
       selectionList.appendChild(el("div", { class: "empty-state" }, "項目なし"));
@@ -2826,6 +2873,19 @@
       row.appendChild(button);
       selectionList.appendChild(row);
     });
+  }
+
+  function selectionListStateSignature(items) {
+    const selectedKey = selected ? `${selected.type}:${selected.id}` : "";
+    const multiKey = [...multiSelectedItemKeys].sort().join(",");
+    const itemKey = items.map((item) => [
+      item.type,
+      item.id,
+      item.name,
+      item.color || "",
+      item.dotStyle || ""
+    ].join("~")).join("|");
+    return `${isViewMode() ? "view" : "edit"}/${selectedKey}/${multiKey}/${itemKey}`;
   }
 
   function toggleMultiSelectedNode(id, force) {
@@ -4944,7 +5004,7 @@
       const dy = point.y - drag.start.y;
       drag.current = point;
       if (Math.hypot(dx, dy) > 12) drag.moved = true;
-      requestDiagramRender();
+      requestInteractionDiagramRender();
       return;
     }
 
@@ -4956,7 +5016,7 @@
         drag.moved = true;
         updateMarqueeSelection(drag);
       }
-      requestDiagramRender();
+      requestInteractionDiagramRender();
       return;
     }
 
@@ -5051,7 +5111,7 @@
       const ratio = edgeAnchorRatioFromPoint(endpoint.item, point);
       setLinkAnchorValue(link, drag.side, drag.endpointId, makeCustomAnchor(ratio.x, ratio.y));
     }
-    requestDiagramRender();
+    requestInteractionDiagramRender();
   }
 
   function onPointerUp(event) {
@@ -6415,11 +6475,16 @@
   function scheduleChange(renderNow = true) {
     clearTimeout(changeTimer);
     if (renderNow) {
-      renderDiagram();
-      renderSelectionList();
+      requestDiagramRender({ fast: true });
       updateStatus();
     }
-    changeTimer = window.setTimeout(() => commitChange(false), 280);
+    changeTimer = window.setTimeout(() => {
+      commitChange(false);
+      if (renderNow) {
+        requestDiagramRender();
+        renderSelectionList();
+      }
+    }, 420);
   }
 
   function undo() {
@@ -7596,7 +7661,9 @@
     const hasManualOffset = Math.abs(normalizedLinkRouteOffsetX(link)) > 0.001 || Math.abs(normalizedLinkRouteOffsetY(link)) > 0.001;
     const routed = hasManualOffset
       ? manualOrthogonalRoutePoints(link, routeStart, routeEnd, preferredAxis)
-      : routeOrthogonalPoints(routeStart, routeEnd, preferredAxis, linkConnectionObstacles([fromEndpoint, toEndpoint]));
+      : fastDiagramRender
+        ? routeCandidatePoints(routeStart, routeEnd, preferredAxis)
+        : routeOrthogonalPoints(routeStart, routeEnd, preferredAxis, linkConnectionObstacles([fromEndpoint, toEndpoint]));
     const points = [start];
     if (startTerminal) points.push(startTerminal.point);
     points.push(...routed);
@@ -8161,6 +8228,7 @@
   function polylinePathWithJumps(link, points) {
     const compact = compactPolyline(points);
     if (compact.length < 2) return polylinePath(compact);
+    if (fastDiagramRender) return polylinePath(compact);
     const crossingsBySegment = linkJumpCrossings(link, compact);
     if (!crossingsBySegment.size) return polylinePath(compact);
 
