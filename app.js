@@ -3224,8 +3224,8 @@
     const outgoing = readonlyNodeRelationEntries(node.id, "fromIds", "toIds");
     const incoming = readonlyNodeRelationEntries(node.id, "toIds", "fromIds");
     section.appendChild(el("div", { class: "readonly-relations-title" }, "関係線"));
-    section.appendChild(renderReadonlyRelationList("この人物から伸びる関係", outgoing, node.name));
-    section.appendChild(renderReadonlyRelationList("この人物へ向けて伸びる関係", incoming, node.name));
+    section.appendChild(renderReadonlyRelationList("この人物から伸びる関係", outgoing, node));
+    section.appendChild(renderReadonlyRelationList("この人物へ向けて伸びる関係", incoming, node));
     return section;
   }
 
@@ -3253,11 +3253,12 @@
     return {
       id,
       label: endpoint.label || "未設定",
-      type: endpoint.type
+      type: endpoint.type,
+      item: endpoint.item
     };
   }
 
-  function renderReadonlyRelationList(title, entries, nodeName) {
+  function renderReadonlyRelationList(title, entries, node) {
     const group = el("section", { class: "readonly-relation-group" });
     group.appendChild(el("div", { class: "readonly-relation-group-title" }, title));
     if (!entries.length) {
@@ -3266,32 +3267,85 @@
     }
     const list = el("div", { class: "readonly-relation-list" });
     entries.forEach((entry) => {
-      const row = el("div", { class: "readonly-relation-row" });
-      const flow = readonlyRelationFlow(entry.type, entry.ownSide);
-      row.appendChild(el("div", { class: "readonly-relation-person" }, String(nodeName || "人物")));
-      row.appendChild(el("div", { class: "readonly-relation-arrow", "aria-hidden": "true" }, flow.before));
-      row.appendChild(el("div", { class: "readonly-relation-name" }, entry.label));
-      row.appendChild(el("div", { class: "readonly-relation-arrow", "aria-hidden": "true" }, flow.after));
-      const counterpart = el("div", { class: "readonly-relation-counterpart" }, entry.counterpart.label);
-      if (entry.counterpart.type === "group") {
-        counterpart.appendChild(el("span", { class: "readonly-relation-kind" }, "グループ"));
-      }
-      row.appendChild(counterpart);
-      list.appendChild(row);
+      list.appendChild(renderReadonlyRelationDiagram(entry, node));
     });
     group.appendChild(list);
     return group;
   }
 
+  function renderReadonlyRelationDiagram(entry, node) {
+    const diagram = el("div", { class: "readonly-relation-diagram" });
+    diagram.appendChild(readonlyRelationNode(node, "node"));
+    const link = el("div", { class: "readonly-relation-link" });
+    link.appendChild(renderReadonlyRelationLine(entry));
+    link.appendChild(el("div", { class: "readonly-relation-name" }, entry.label));
+    diagram.appendChild(link);
+    diagram.appendChild(readonlyRelationNode(entry.counterpart.item, entry.counterpart.type, entry.counterpart.label));
+    return diagram;
+  }
+
+  function readonlyRelationNode(item, type, fallbackLabel = "") {
+    const label = fallbackLabel || (type === "group" ? item?.title : item?.name) || "未設定";
+    const chip = el("div", {
+      class: "readonly-relation-node",
+      style: item ? selectionDotStyle(item) : "background:#6b7280"
+    });
+    chip.appendChild(el("span", { class: "readonly-relation-node-name" }, label));
+    if (type === "group") {
+      chip.appendChild(el("span", { class: "readonly-relation-kind" }, "グループ"));
+    }
+    return chip;
+  }
+
+  function renderReadonlyRelationLine(entry) {
+    const flow = readonlyRelationFlow(entry.type, entry.ownSide);
+    const markerId = `readonly_relation_arrow_${String(entry.id).replace(/[^a-zA-Z0-9_-]/g, "")}`;
+    const svgLine = createSvg("svg", {
+      class: "readonly-relation-line",
+      viewBox: "0 0 240 48",
+      preserveAspectRatio: "none",
+      "aria-hidden": "true"
+    });
+    const defs = createSvg("defs");
+    const marker = createSvg("marker", {
+      id: markerId,
+      viewBox: "0 0 10 10",
+      refX: 8.5,
+      refY: 5,
+      markerWidth: 6,
+      markerHeight: 6,
+      orient: "auto-start-reverse"
+    });
+    marker.appendChild(createSvg("path", {
+      d: "M 0 0 L 10 5 L 0 10 z",
+      fill: "#147d72"
+    }));
+    defs.appendChild(marker);
+    svgLine.appendChild(defs);
+    svgLine.appendChild(createSvg("line", {
+      x1: 8,
+      y1: 24,
+      x2: 232,
+      y2: 24,
+      stroke: "#147d72",
+      "stroke-width": 2.4,
+      "stroke-linecap": "round",
+      "stroke-dasharray": entry.type === "dashed" ? "8 6" : "",
+      "marker-start": flow.atSource ? `url(#${markerId})` : "",
+      "marker-end": flow.atCounterpart ? `url(#${markerId})` : ""
+    }));
+    return svgLine;
+  }
+
   function readonlyRelationFlow(type, ownSide) {
-    if (type === "bidirectional") return { before: "←", after: "→" };
+    if (type === "bidirectional") return { atSource: true, atCounterpart: true };
     if (type === "arrow" || type === "from-to") {
-      return ownSide === "fromIds" ? { before: "→", after: "→" } : { before: "←", after: "←" };
+      return ownSide === "fromIds" ? { atSource: false, atCounterpart: true } : { atSource: true, atCounterpart: false };
     }
     if (type === "to-from") {
-      return ownSide === "fromIds" ? { before: "←", after: "←" } : { before: "→", after: "→" };
+      return ownSide === "fromIds" ? { atSource: true, atCounterpart: false } : { atSource: false, atCounterpart: true };
     }
-    return { before: "─", after: "─" };
+    return { atSource: false, atCounterpart: false };
   }
 
   function detailRow(label, value) {
