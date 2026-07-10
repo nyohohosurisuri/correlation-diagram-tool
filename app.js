@@ -3119,6 +3119,7 @@
       wrap.appendChild(renderReadonlyNodeProfile(item));
       wrap.appendChild(detailRow("説明文", nodeDescription(item)));
       wrap.appendChild(detailRow("属性マーク", nodeMarkLabels(item.marks)));
+      wrap.appendChild(renderReadonlyNodeRelations(item));
     }
     if (selected.type === "group") {
       wrap.appendChild(detailRow("種別", "グループ"));
@@ -3216,6 +3217,81 @@
       wrap.appendChild(badge);
     });
     return wrap;
+  }
+
+  function renderReadonlyNodeRelations(node) {
+    const section = el("section", { class: "readonly-relations" });
+    const outgoing = readonlyNodeRelationEntries(node.id, "fromIds", "toIds");
+    const incoming = readonlyNodeRelationEntries(node.id, "toIds", "fromIds");
+    section.appendChild(el("div", { class: "readonly-relations-title" }, "関係線"));
+    section.appendChild(renderReadonlyRelationList("この人物から伸びる関係", outgoing, node.name));
+    section.appendChild(renderReadonlyRelationList("この人物へ向けて伸びる関係", incoming, node.name));
+    return section;
+  }
+
+  function readonlyNodeRelationEntries(nodeId, ownSide, counterpartSide) {
+    return state.links.flatMap((link) => {
+      if (!getLinkEndpointIds(link, ownSide).includes(nodeId)) return [];
+      const counterparts = getLinkEndpointIds(link, counterpartSide)
+        .filter((id) => id !== nodeId)
+        .map(readonlyRelationEndpoint)
+        .filter(Boolean);
+      const entries = counterparts.length ? counterparts : [{ label: "相手未設定", type: "unknown" }];
+      return entries.map((counterpart, index) => ({
+        id: `${link.id}:${counterpart.id || index}`,
+        label: String(link.label || "関係名未設定"),
+        type: link.type || "line",
+        ownSide,
+        counterpart
+      }));
+    });
+  }
+
+  function readonlyRelationEndpoint(id) {
+    const endpoint = getConnectionEndpoint(id);
+    if (!endpoint) return null;
+    return {
+      id,
+      label: endpoint.label || "未設定",
+      type: endpoint.type
+    };
+  }
+
+  function renderReadonlyRelationList(title, entries, nodeName) {
+    const group = el("section", { class: "readonly-relation-group" });
+    group.appendChild(el("div", { class: "readonly-relation-group-title" }, title));
+    if (!entries.length) {
+      group.appendChild(el("div", { class: "readonly-relation-empty" }, "なし"));
+      return group;
+    }
+    const list = el("div", { class: "readonly-relation-list" });
+    entries.forEach((entry) => {
+      const row = el("div", { class: "readonly-relation-row" });
+      const flow = readonlyRelationFlow(entry.type, entry.ownSide);
+      row.appendChild(el("div", { class: "readonly-relation-person" }, String(nodeName || "人物")));
+      row.appendChild(el("div", { class: "readonly-relation-arrow", "aria-hidden": "true" }, flow.before));
+      row.appendChild(el("div", { class: "readonly-relation-name" }, entry.label));
+      row.appendChild(el("div", { class: "readonly-relation-arrow", "aria-hidden": "true" }, flow.after));
+      const counterpart = el("div", { class: "readonly-relation-counterpart" }, entry.counterpart.label);
+      if (entry.counterpart.type === "group") {
+        counterpart.appendChild(el("span", { class: "readonly-relation-kind" }, "グループ"));
+      }
+      row.appendChild(counterpart);
+      list.appendChild(row);
+    });
+    group.appendChild(list);
+    return group;
+  }
+
+  function readonlyRelationFlow(type, ownSide) {
+    if (type === "bidirectional") return { before: "←", after: "→" };
+    if (type === "arrow" || type === "from-to") {
+      return ownSide === "fromIds" ? { before: "→", after: "→" } : { before: "←", after: "←" };
+    }
+    if (type === "to-from") {
+      return ownSide === "fromIds" ? { before: "←", after: "←" } : { before: "→", after: "→" };
+    }
+    return { before: "─", after: "─" };
   }
 
   function detailRow(label, value) {
