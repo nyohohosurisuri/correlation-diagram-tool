@@ -34,6 +34,15 @@
   const INSERTED_IMAGE_MAX_HEIGHT = 280;
   const LEGEND_DEFAULT_WIDTH = 260;
   const LEGEND_DEFAULT_FONT_SIZE = 14;
+  const ARROW_LEGEND_DEFAULT_WIDTH = 300;
+  const LEGEND_KINDS = new Set(["marks", "arrows"]);
+  const ARROW_LEGEND_TYPES = [
+    ["from-to", "右向き矢印"],
+    ["to-from", "左向き矢印"],
+    ["bidirectional", "両矢印"],
+    ["none", "線のみ"]
+  ];
+  const ARROW_LEGEND_TYPE_IDS = new Set(ARROW_LEGEND_TYPES.map(([id]) => id));
   const GROUP_MIN_WIDTH = 96;
   const GROUP_MIN_HEIGHT = 52;
   const GROUP_MAX_WIDTH = 1600;
@@ -528,6 +537,19 @@
       if (isViewMode()) return;
       const center = screenCenterWorld();
       const legend = createDefaultLegend(center);
+      state.legends.push(legend);
+      selected = { type: "legend", id: legend.id };
+      inspectorOpen = true;
+      mode = "select";
+      pendingConnection = null;
+      commitChange();
+      render();
+    });
+
+    document.querySelector("#addArrowLegendBtn").addEventListener("click", () => {
+      if (isViewMode()) return;
+      const center = screenCenterWorld();
+      const legend = createDefaultArrowLegend(center);
       state.legends.push(legend);
       selected = { type: "legend", id: legend.id };
       inspectorOpen = true;
@@ -1930,6 +1952,7 @@
   function renderLegend(legend) {
     const active = isSelected("legend", legend.id) || isMultiSelectedItem("legend", legend.id);
     const metrics = legendMetrics(legend);
+    const arrowLegend = isArrowLegend(legend);
     const g = createSvg("g", {
       "data-type": "legend",
       "data-id": legend.id,
@@ -1954,7 +1977,7 @@
       "font-size": 14,
       "font-weight": 800,
       "pointer-events": "none"
-    }, legend.title || "属性マーク凡例"));
+    }, legendTitle(legend)));
     g.appendChild(createSvg("line", {
       x1: legend.x + 10,
       y1: legend.y + 30,
@@ -1977,6 +2000,11 @@
       return g;
     }
 
+    if (arrowLegend) {
+      renderArrowLegendRows(g, legend, metrics);
+      return g;
+    }
+
     metrics.rows.forEach((row) => {
       g.appendChild(renderNodeMarkBadge(row.mark, legend.x + 12, row.y + 3, metrics.markSize));
       const text = createSvg("text", {
@@ -1996,6 +2024,60 @@
       g.appendChild(text);
     });
     return g;
+  }
+
+  function renderArrowLegendRows(g, legend, metrics) {
+    const sampleStartX = legend.x + 16;
+    const sampleEndX = sampleStartX + metrics.sampleWidth;
+    metrics.rows.forEach((row) => {
+      const item = row.item;
+      const flow = arrowLegendFlow(item.type);
+      const color = item.color || "#202329";
+      const width = clamp(Number(item.width) || 3, 1, 8);
+      const headSize = clamp(width * 2.4 + 2, 6, 14);
+      const y = row.y + row.height / 2;
+      const x1 = sampleStartX + (flow.start ? headSize * 0.6 : 0);
+      const x2 = sampleEndX - (flow.end ? headSize * 0.6 : 0);
+      g.appendChild(createSvg("line", {
+        x1,
+        y1: y,
+        x2,
+        y2: y,
+        stroke: color,
+        "stroke-width": width,
+        "stroke-linecap": "round",
+        "pointer-events": "none"
+      }));
+      if (flow.start) appendArrowLegendHead(g, sampleStartX, y, headSize, color, "left");
+      if (flow.end) appendArrowLegendHead(g, sampleEndX, y, headSize, color, "right");
+
+      const text = createSvg("text", {
+        x: sampleEndX + 12,
+        y: row.y + metrics.fontSize,
+        fill: legend.color || "#202329",
+        "font-size": metrics.fontSize,
+        "font-weight": 650,
+        "pointer-events": "none"
+      });
+      row.lines.forEach((line, index) => {
+        text.appendChild(createSvg("tspan", {
+          x: sampleEndX + 12,
+          dy: index === 0 ? 0 : metrics.lineHeight
+        }, line || " "));
+      });
+      g.appendChild(text);
+    });
+  }
+
+  function appendArrowLegendHead(g, x, y, size, color, direction) {
+    const points = direction === "left"
+      ? `${x},${y} ${x + size},${y - size * 0.62} ${x + size},${y + size * 0.62}`
+      : `${x},${y} ${x - size},${y - size * 0.62} ${x - size},${y + size * 0.62}`;
+    g.appendChild(createSvg("polygon", {
+      points,
+      fill: color,
+      "pointer-events": "none"
+    }));
   }
 
   function thickArrowPath(shape) {
@@ -2030,6 +2112,7 @@
   function createDefaultLegend(center) {
     return {
       id: uid("legend"),
+      kind: "marks",
       title: "属性マーク凡例",
       x: center.x - LEGEND_DEFAULT_WIDTH / 2,
       y: center.y - 90,
@@ -2046,7 +2129,28 @@
     };
   }
 
+  function createDefaultArrowLegend(center) {
+    return {
+      id: uid("legend"),
+      kind: "arrows",
+      title: "関係線凡例",
+      x: center.x - ARROW_LEGEND_DEFAULT_WIDTH / 2,
+      y: center.y - 78,
+      w: ARROW_LEGEND_DEFAULT_WIDTH,
+      fontSize: LEGEND_DEFAULT_FONT_SIZE,
+      color: "#202329",
+      backgroundColor: "#ffffff",
+      borderColor: "#d8ded8",
+      items: [
+        createArrowLegendItem({ text: "敵対", color: "#e53935", type: "bidirectional", width: 3 }),
+        createArrowLegendItem({ text: "協力・友好", color: "#1e88e5", type: "bidirectional", width: 3 }),
+        createArrowLegendItem({ text: "一方的な影響", color: "#202329", type: "from-to", width: 2 })
+      ]
+    };
+  }
+
   function legendMetrics(legend) {
+    if (isArrowLegend(legend)) return arrowLegendMetrics(legend);
     const fontSize = clamp(Number(legend.fontSize) || LEGEND_DEFAULT_FONT_SIZE, 9, 28);
     const lineHeight = fontSize * 1.25;
     const markSize = clamp(fontSize + 5, 14, 28);
@@ -2077,6 +2181,61 @@
       rows,
       height
     };
+  }
+
+  function arrowLegendMetrics(legend) {
+    const fontSize = clamp(Number(legend.fontSize) || LEGEND_DEFAULT_FONT_SIZE, 9, 28);
+    const lineHeight = fontSize * 1.25;
+    const legendWidth = Number(legend.w) || ARROW_LEGEND_DEFAULT_WIDTH;
+    const sampleWidth = clamp(Math.round(legendWidth * 0.28), 52, 90);
+    const textWidth = Math.max(28, legendWidth - sampleWidth - 40);
+    let cursorY = legend.y + 38;
+    const rows = normalizeArrowLegendItems(legend.items)
+      .filter((item) => item.visible)
+      .map((item) => {
+        const lines = wrapTextLines(item.text || "説明", textWidth, fontSize);
+        const rowHeight = Math.max(22, Number(item.width) + 12, lines.length * lineHeight + 8);
+        const row = {
+          item,
+          lines,
+          y: cursorY,
+          height: rowHeight
+        };
+        cursorY += rowHeight;
+        return row;
+      });
+    const height = Math.max(58, cursorY - legend.y + 8);
+    return {
+      fontSize,
+      lineHeight,
+      sampleWidth,
+      rows,
+      height
+    };
+  }
+
+  function legendKind(legend) {
+    return LEGEND_KINDS.has(legend?.kind) ? legend.kind : "marks";
+  }
+
+  function isArrowLegend(legend) {
+    return legendKind(legend) === "arrows";
+  }
+
+  function legendTitle(legend) {
+    return String(legend?.title || (isArrowLegend(legend) ? "関係線凡例" : "属性マーク凡例"));
+  }
+
+  function arrowLegendFlow(type) {
+    const normalized = ARROW_LEGEND_TYPE_IDS.has(type) ? type : "from-to";
+    return {
+      start: normalized === "to-from" || normalized === "bidirectional",
+      end: normalized === "from-to" || normalized === "bidirectional"
+    };
+  }
+
+  function arrowLegendTypeLabel(type) {
+    return ARROW_LEGEND_TYPES.find(([id]) => id === type)?.[1] || "右向き矢印";
   }
 
   function renderLink(link) {
@@ -2907,7 +3066,7 @@
       ...state.legends.map((legend) => ({
         type: "legend",
         id: legend.id,
-        name: legend.title || "属性マーク凡例",
+        name: legendTitle(legend),
         color: legend.borderColor || "#202329"
       }))
     ];
@@ -3223,8 +3382,8 @@
       wrap.appendChild(detailRow("名前", item.name || "画像"));
     }
     if (selected.type === "legend") {
-      wrap.appendChild(detailRow("種別", "凡例"));
-      wrap.appendChild(detailRow("見出し", item.title || "属性マーク凡例"));
+      wrap.appendChild(detailRow("種別", isArrowLegend(item) ? "矢印凡例" : "属性マーク凡例"));
+      wrap.appendChild(detailRow("見出し", legendTitle(item)));
       wrap.appendChild(detailRow("項目", legendDetailText(item)));
     }
     inspectorContent.appendChild(wrap);
@@ -3468,6 +3627,12 @@
   }
 
   function legendDetailText(legend) {
+    if (isArrowLegend(legend)) {
+      return normalizeArrowLegendItems(legend.items)
+        .filter((item) => item.visible)
+        .map((item) => `${arrowLegendTypeLabel(item.type)}: ${item.text || "説明"}`)
+        .join("\n");
+    }
     return normalizeLegendItems(legend.items)
       .filter((item) => item.visible)
       .map((item) => {
@@ -3954,7 +4119,7 @@
       legend.borderColor = value;
       scheduleChange();
     }, ["#202329", "#d8ded8", "#ffffff", ...PALETTE])));
-    form.appendChild(field("項目", legendItemControls(legend)));
+    form.appendChild(field(isArrowLegend(legend) ? "矢印項目" : "項目", isArrowLegend(legend) ? arrowLegendItemControls(legend) : legendItemControls(legend)));
     form.appendChild(el("div", { class: "divider" }));
     form.appendChild(actionRow(() => duplicateLegend(legend), deleteSelected));
     inspectorContent.appendChild(form);
@@ -3994,6 +4159,82 @@
       row.appendChild(input);
       wrap.appendChild(row);
     });
+    return wrap;
+  }
+
+  function arrowLegendItemControls(legend) {
+    legend.items = normalizeArrowLegendItems(legend.items);
+    const wrap = el("div", { class: "arrow-legend-item-options" });
+    legend.items.forEach((item) => {
+      const row = el("div", {
+        class: `arrow-legend-item-option${item.visible ? " is-active" : ""}`
+      });
+      const main = el("div", { class: "arrow-legend-item-main" });
+      const check = el("input", {
+        type: "checkbox",
+        title: "表示する"
+      });
+      check.checked = Boolean(item.visible);
+      check.addEventListener("change", () => {
+        item.visible = check.checked;
+        commitChange();
+        render();
+      });
+      main.appendChild(check);
+      const input = el("input", {
+        type: "text",
+        value: item.text || "",
+        "aria-label": "矢印凡例の説明"
+      });
+      input.addEventListener("input", () => {
+        item.text = input.value;
+        scheduleChange();
+      });
+      input.addEventListener("change", () => commitChange());
+      main.appendChild(input);
+      row.appendChild(main);
+
+      const controls = el("div", { class: "arrow-legend-item-controls" });
+      const typeSelect = el("select", { "aria-label": "矢印の種類" });
+      ARROW_LEGEND_TYPES.forEach(([value, label]) => {
+        const option = el("option", { value }, label);
+        option.selected = item.type === value;
+        typeSelect.appendChild(option);
+      });
+      typeSelect.addEventListener("change", () => {
+        item.type = typeSelect.value;
+        commitChange();
+        render();
+      });
+      controls.appendChild(typeSelect);
+      const remove = el("button", {
+        type: "button",
+        class: "danger",
+        title: "この項目を削除"
+      }, "削除");
+      remove.addEventListener("click", () => {
+        legend.items = legend.items.filter((candidate) => candidate.id !== item.id);
+        commitChange();
+        render();
+      });
+      controls.appendChild(remove);
+      row.appendChild(controls);
+      row.appendChild(field("色", swatches(item.color, (value) => {
+        item.color = value;
+      }, ["#e53935", "#1e88e5", "#43a047", "#f9a825", "#8e24aa", "#202329", "#ffffff"])));
+      row.appendChild(field("太さ", rangeWithValue(item.width, 1, 8, (value) => {
+        item.width = value;
+        scheduleChange();
+      }, 1, "px")));
+      wrap.appendChild(row);
+    });
+    const add = el("button", { type: "button", class: "arrow-legend-add" }, "＋ 矢印項目を追加");
+    add.addEventListener("click", () => {
+      legend.items.push(createArrowLegendItem());
+      commitChange();
+      render();
+    });
+    wrap.appendChild(add);
     return wrap;
   }
 
@@ -6014,7 +6255,7 @@
     const copy = {
       ...structuredClone(legend),
       id: uid("legend"),
-      title: `${legend.title || "属性マーク凡例"} コピー`,
+      title: `${legendTitle(legend)} コピー`,
       x: legend.x + 24,
       y: legend.y + 24
     };
@@ -7196,17 +7437,19 @@
 
   function normalizeLegend(legend) {
     const source = legend && typeof legend === "object" ? legend : {};
+    const kind = LEGEND_KINDS.has(source.kind) ? source.kind : "marks";
     return {
       id: source.id || uid("legend"),
-      title: String(source.title || "属性マーク凡例"),
+      kind,
+      title: String(source.title || (kind === "arrows" ? "関係線凡例" : "属性マーク凡例")),
       x: Number(source.x) || 0,
       y: Number(source.y) || 0,
-      w: clamp(Number(source.w) || LEGEND_DEFAULT_WIDTH, 150, 620),
+      w: clamp(Number(source.w) || (kind === "arrows" ? ARROW_LEGEND_DEFAULT_WIDTH : LEGEND_DEFAULT_WIDTH), 150, 620),
       fontSize: clamp(Number(source.fontSize) || LEGEND_DEFAULT_FONT_SIZE, 9, 28),
       color: source.color || "#202329",
       backgroundColor: typeof source.backgroundColor === "string" ? source.backgroundColor : "#ffffff",
       borderColor: typeof source.borderColor === "string" ? source.borderColor : "#d8ded8",
-      items: normalizeLegendItems(source.items)
+      items: kind === "arrows" ? normalizeArrowLegendItems(source.items) : normalizeLegendItems(source.items)
     };
   }
 
@@ -7221,6 +7464,24 @@
         visible: source.visible !== false
       };
     });
+  }
+
+  function createArrowLegendItem(source = {}) {
+    const item = source && typeof source === "object" ? source : {};
+    const type = ARROW_LEGEND_TYPE_IDS.has(item.type) ? item.type : "from-to";
+    return {
+      id: String(item.id || uid("arrowLegendItem")),
+      text: typeof item.text === "string" ? item.text : "説明",
+      color: typeof item.color === "string" && item.color ? item.color : "#202329",
+      type,
+      width: clamp(Number(item.width) || 3, 1, 8),
+      visible: item.visible !== false
+    };
+  }
+
+  function normalizeArrowLegendItems(value) {
+    const sourceItems = Array.isArray(value) ? value : [];
+    return sourceItems.map((item) => createArrowLegendItem(item));
   }
 
   function normalizeInsertedImage(imageItem) {
@@ -7271,7 +7532,7 @@
     if (selected.type === "text") statusText.textContent = `文章: ${truncate(firstTextLine(item.content) || "テキスト", 18)}`;
     if (selected.type === "shape") statusText.textContent = `図形: ${shapeLabel(item)}`;
     if (selected.type === "image") statusText.textContent = `画像: ${item.name || "画像"}`;
-    if (selected.type === "legend") statusText.textContent = `凡例: ${item.title || "属性マーク凡例"}`;
+    if (selected.type === "legend") statusText.textContent = `${isArrowLegend(item) ? "矢印凡例" : "属性マーク凡例"}: ${legendTitle(item)}`;
   }
 
   function shapeLabel(shape) {

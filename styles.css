@@ -1297,6 +1297,61 @@ body[data-tools-collapsed="true"] .tools-toggle {
   padding: 6px 8px;
 }
 
+.arrow-legend-item-options {
+  display: grid;
+  gap: 8px;
+}
+
+.arrow-legend-item-option {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.arrow-legend-item-option.is-active {
+  border-color: #95a89d;
+  background: var(--panel-2);
+}
+
+.arrow-legend-item-main {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.arrow-legend-item-main input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+}
+
+.arrow-legend-item-main input[type="text"],
+.arrow-legend-item-controls select {
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.arrow-legend-item-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.arrow-legend-item-option .field {
+  gap: 5px;
+}
+
+.arrow-legend-add {
+  width: 100%;
+}
+
 .resize-handle,
 .resize-hit,
 .resize-handle-layer {
