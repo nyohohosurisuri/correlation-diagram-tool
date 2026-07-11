@@ -10,6 +10,7 @@
   const AUTO_SAVE_INTERVAL_MS = 60000;
   const INTERACTION_RENDER_INTERVAL_MS = 42;
   const TOUCH_INTERACTION_RENDER_INTERVAL_MS = 64;
+  const DEFERRED_SELECTION_RENDER_DELAY_MS = 560;
   const BOOT_PROJECT_LOAD_TIMEOUT_MS = 2500;
   const STATIC_PWA_MODE = isStaticPwaMode();
   const DOUBLE_TAP_TIMEOUT_MS = 520;
@@ -221,6 +222,7 @@
   let diagramRenderFrame = 0;
   let viewportRenderFrame = 0;
   let interactionRenderTimer = 0;
+  let deferredSelectionRenderTimer = 0;
   let lastInteractionRenderAt = 0;
   let requestedDiagramRenderFast = false;
   let fastDiagramRender = false;
@@ -781,6 +783,27 @@
     updateSelectionListState({ skipHiddenMobileList: true });
   }
 
+  function renderEditSelection(options = {}) {
+    cancelScheduledRenders();
+    updateRenderShellState();
+    if (options.openInspector) renderInspector();
+    updateStatus();
+    updateAlignControls();
+    updateMobileToolPanel();
+    updateToolsToggle();
+    updateModeControls();
+    updateSelectionListState({ skipHiddenMobileList: true });
+    if (options.deferDiagram) requestDeferredSelectionDiagramRender();
+  }
+
+  function requestDeferredSelectionDiagramRender() {
+    if (deferredSelectionRenderTimer) window.clearTimeout(deferredSelectionRenderTimer);
+    deferredSelectionRenderTimer = window.setTimeout(() => {
+      deferredSelectionRenderTimer = 0;
+      requestDiagramRender();
+    }, DEFERRED_SELECTION_RENDER_DELAY_MS);
+  }
+
   function renderDiagram(options = {}) {
     cancelScheduledRenders();
     const previousFastDiagramRender = fastDiagramRender;
@@ -853,6 +876,10 @@
       window.clearTimeout(interactionRenderTimer);
       interactionRenderTimer = 0;
     }
+    if (deferredSelectionRenderTimer) {
+      window.clearTimeout(deferredSelectionRenderTimer);
+      deferredSelectionRenderTimer = 0;
+    }
     requestedDiagramRenderFast = false;
   }
 
@@ -880,6 +907,10 @@
   }
 
   function requestInteractionDiagramRender() {
+    if (deferredSelectionRenderTimer) {
+      window.clearTimeout(deferredSelectionRenderTimer);
+      deferredSelectionRenderTimer = 0;
+    }
     if (diagramRenderFrame || interactionRenderTimer) return;
     const interval = window.matchMedia?.("(pointer: coarse)")?.matches
       ? TOUCH_INTERACTION_RENDER_INTERVAL_MS
@@ -2935,7 +2966,7 @@
         if (!isViewMode()) mode = "select";
         pendingConnection = null;
         if (isViewMode()) renderViewSelection();
-        else render();
+        else renderEditSelection({ deferDiagram: true });
       });
       button.addEventListener("dblclick", () => {
         selected = { type: item.type, id: item.id };
@@ -2943,7 +2974,7 @@
         if (!isViewMode()) mode = "select";
         pendingConnection = null;
         if (isViewMode()) renderViewSelection();
-        else render();
+        else renderEditSelection({ openInspector: true });
       });
       row.appendChild(button);
       selectionList.appendChild(row);
@@ -2985,7 +3016,10 @@
     if (!isMultiSelectableType(type) || !getSelectableItem(type, id)) return;
     const shouldSelect = force === undefined ? !isMultiSelectedItem(type, id) : Boolean(force);
     setMultiSelectedItem(type, id, shouldSelect);
-    render();
+    renderEditSelection({
+      openInspector: multiSelectedCount() >= 2,
+      deferDiagram: true
+    });
   }
 
   function isMultiSelectableType(type) {
@@ -4923,7 +4957,7 @@
         },
         moved: false
       };
-      render();
+      renderEditSelection({ deferDiagram: true });
       return;
     }
 
@@ -4947,7 +4981,7 @@
         original: { w: group.w, h: group.h },
         moved: false
       };
-      render();
+      renderEditSelection({ deferDiagram: true });
       return;
     }
 
@@ -4978,7 +5012,7 @@
         original: { x: node.x, y: node.y },
         moved: false
       };
-      render();
+      renderEditSelection({ deferDiagram: true });
       return;
     }
 
@@ -5019,7 +5053,7 @@
         previousSelection: selectedGroupUnderPoint ? null : previousSelection,
         moved: false
       };
-      render();
+      renderEditSelection({ deferDiagram: true });
       return;
     }
 
@@ -5048,7 +5082,7 @@
         original: { x: textItem.x, y: textItem.y },
         moved: false
       };
-      render();
+      renderEditSelection({ deferDiagram: true });
       return;
     }
 
@@ -5077,7 +5111,7 @@
         original: { x: shape.x, y: shape.y },
         moved: false
       };
-      render();
+      renderEditSelection({ deferDiagram: true });
       return;
     }
 
@@ -5106,7 +5140,7 @@
         original: { x: imageItem.x, y: imageItem.y },
         moved: false
       };
-      render();
+      renderEditSelection({ deferDiagram: true });
       return;
     }
 
@@ -5135,7 +5169,7 @@
         original: { x: legend.x, y: legend.y },
         moved: false
       };
-      render();
+      renderEditSelection({ deferDiagram: true });
       return;
     }
 
@@ -5174,7 +5208,7 @@
         },
         moved: false
       };
-      render();
+      renderEditSelection({ deferDiagram: true });
       return;
     }
 
@@ -5198,7 +5232,7 @@
       original: { x: state.viewport.x, y: state.viewport.y },
       moved: false
     };
-    render();
+    renderEditSelection();
   }
 
   function onPointerMove(event) {
@@ -5373,7 +5407,10 @@
     if ((currentDrag.type === "node" || currentDrag.type === "multi" || currentDrag.type === "group" || currentDrag.type === "group-resize" || currentDrag.type === "group-notch" || currentDrag.type === "text" || currentDrag.type === "shape" || currentDrag.type === "image" || currentDrag.type === "legend" || currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor") && !currentDrag.moved) {
       handleTapSelection(currentDrag.type === "multi" ? currentDrag.itemType : currentDrag.type === "group-resize" || currentDrag.type === "group-notch" ? "group" : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor" ? "link" : currentDrag.type, currentDrag.id, event, currentDrag.previousSelection);
       drag = null;
-      render();
+      renderEditSelection({
+        openInspector: inspectorOpen,
+        deferDiagram: !inspectorOpen
+      });
       return;
     }
     const changed = drag.type !== "pan";
@@ -5410,7 +5447,10 @@
       if (currentDrag.type !== "pan" && currentDrag.moved) {
         commitChange();
       } else {
-        render();
+        renderEditSelection({
+          openInspector: inspectorOpen,
+          deferDiagram: !inspectorOpen
+        });
       }
     }
   }
@@ -5614,7 +5654,7 @@
       baseNodeIds,
       moved: false
     };
-    render();
+    renderEditSelection({ deferDiagram: true });
   }
 
   function updateMarqueeSelection(marqueeDrag) {
@@ -5678,7 +5718,7 @@
       items,
       moved: false
     };
-    render();
+    renderEditSelection({ deferDiagram: true });
     return true;
   }
 
@@ -5735,7 +5775,7 @@
       },
       moved: false
     };
-    render();
+    renderEditSelection({ deferDiagram: true });
     return true;
   }
 
@@ -5763,7 +5803,7 @@
       },
       moved: false
     };
-    render();
+    renderEditSelection({ deferDiagram: true });
     return true;
   }
 
@@ -5793,7 +5833,7 @@
       },
       moved: false
     };
-    render();
+    renderEditSelection({ deferDiagram: true });
     return true;
   }
 
