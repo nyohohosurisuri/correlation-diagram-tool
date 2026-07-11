@@ -797,6 +797,7 @@
   function renderViewSelection() {
     cancelScheduledRenders();
     updateRenderShellState();
+    updateImmediateSelectionFeedback();
     renderInspector();
     updateStatus();
     updateMobileToolPanel();
@@ -808,6 +809,7 @@
   function renderEditSelection(options = {}) {
     cancelScheduledRenders();
     updateRenderShellState();
+    updateImmediateSelectionFeedback();
     if (options.openInspector) renderInspector();
     updateStatus();
     updateAlignControls();
@@ -816,6 +818,41 @@
     updateModeControls();
     updateSelectionListState({ skipHiddenMobileList: true });
     if (options.deferDiagram) requestDeferredSelectionDiagramRender();
+  }
+
+  function updateImmediateSelectionFeedback() {
+    if (!diagramRoot?.isConnected) {
+      diagramRoot = svg.querySelector("[data-diagram-root='true']");
+    }
+    if (!diagramRoot) return;
+    diagramRoot.querySelector("[data-layer='selection-feedback']")?.remove();
+    const selectedNodes = state.nodes.filter((node) => isSelected("node", node.id) || isMultiSelectedItem("node", node.id));
+    if (!selectedNodes.length) return;
+    const layer = createSvg("g", {
+      "data-layer": "selection-feedback",
+      "pointer-events": "none"
+    });
+    selectedNodes.forEach((node) => {
+      layer.appendChild(createSvg("rect", {
+        x: node.x,
+        y: node.y,
+        width: node.w,
+        height: node.h,
+        rx: 8,
+        fill: "none",
+        stroke: "#202329",
+        "stroke-width": 3,
+        "pointer-events": "none"
+      }));
+      layer.appendChild(createSvg("circle", {
+        cx: node.x + node.w,
+        cy: node.y,
+        r: 5,
+        fill: "#202329",
+        "pointer-events": "none"
+      }));
+    });
+    diagramRoot.appendChild(layer);
   }
 
   function requestDeferredSelectionDiagramRender() {
