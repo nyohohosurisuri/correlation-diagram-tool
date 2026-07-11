@@ -9,6 +9,7 @@
   const HISTORY_LIMIT = 40;
   const AUTO_SAVE_INTERVAL_MS = 60000;
   const INTERACTION_RENDER_INTERVAL_MS = 42;
+  const TOUCH_INTERACTION_RENDER_INTERVAL_MS = 64;
   const BOOT_PROJECT_LOAD_TIMEOUT_MS = 2500;
   const STATIC_PWA_MODE = isStaticPwaMode();
   const DOUBLE_TAP_TIMEOUT_MS = 520;
@@ -728,6 +729,7 @@
     const next = toolPanel.dataset.mobilePanel === panel ? "none" : panel;
     toolPanel.dataset.mobilePanel = next;
     updateMobileToolPanel();
+    if (next === "select") updateSelectionListState();
   }
 
   function closeMobileToolPanel() {
@@ -745,14 +747,19 @@
     });
   }
 
-  function render() {
-    cancelScheduledRenders();
+  function updateRenderShellState() {
     const currentSelection = selected ? getSelectedItem() : null;
     const multiNodeCount = selectedAlignmentNodes().length;
     document.body.dataset.selection = currentSelection ? selected.type : "none";
     document.body.dataset.mode = mode;
     document.body.dataset.inspectorOpen = inspectorOpen || multiNodeCount >= 2 || mode === "connect" || (isViewMode() && currentSelection) ? "true" : "false";
     document.body.dataset.toolsCollapsed = toolsCollapsed ? "true" : "false";
+    return currentSelection;
+  }
+
+  function render() {
+    cancelScheduledRenders();
+    updateRenderShellState();
     renderDiagram();
     renderSelectionList();
     renderInspector();
@@ -761,6 +768,17 @@
     updateMobileToolPanel();
     updateToolsToggle();
     updateModeControls();
+  }
+
+  function renderViewSelection() {
+    cancelScheduledRenders();
+    updateRenderShellState();
+    renderInspector();
+    updateStatus();
+    updateMobileToolPanel();
+    updateToolsToggle();
+    updateModeControls();
+    updateSelectionListState({ skipHiddenMobileList: true });
   }
 
   function renderDiagram(options = {}) {
@@ -863,7 +881,10 @@
 
   function requestInteractionDiagramRender() {
     if (diagramRenderFrame || interactionRenderTimer) return;
-    const wait = INTERACTION_RENDER_INTERVAL_MS - (performance.now() - lastInteractionRenderAt);
+    const interval = window.matchMedia?.("(pointer: coarse)")?.matches
+      ? TOUCH_INTERACTION_RENDER_INTERVAL_MS
+      : INTERACTION_RENDER_INTERVAL_MS;
+    const wait = interval - (performance.now() - lastInteractionRenderAt);
     if (wait > 0) {
       interactionRenderTimer = window.setTimeout(() => {
         interactionRenderTimer = 0;
@@ -2859,8 +2880,11 @@
         color: legend.borderColor || "#202329"
       }))
     ];
-    const signature = selectionListStateSignature(items);
-    if (signature === selectionListSignature) return;
+    const signature = selectionListContentSignature(items);
+    if (signature === selectionListSignature) {
+      updateSelectionListState();
+      return;
+    }
     selectionListSignature = signature;
     selectionList.replaceChildren();
     if (!items.length) {
@@ -2869,6 +2893,8 @@
     }
     items.forEach((item) => {
       const row = el("div", {
+        "data-type": item.type,
+        "data-id": item.id,
         class: [
           "selection-item",
           isSelected(item.type, item.id) ? "is-active" : "",
@@ -2908,23 +2934,23 @@
         inspectorOpen = isViewMode();
         if (!isViewMode()) mode = "select";
         pendingConnection = null;
-        render();
+        if (isViewMode()) renderViewSelection();
+        else render();
       });
       button.addEventListener("dblclick", () => {
         selected = { type: item.type, id: item.id };
         inspectorOpen = true;
         if (!isViewMode()) mode = "select";
         pendingConnection = null;
-        render();
+        if (isViewMode()) renderViewSelection();
+        else render();
       });
       row.appendChild(button);
       selectionList.appendChild(row);
     });
   }
 
-  function selectionListStateSignature(items) {
-    const selectedKey = selected ? `${selected.type}:${selected.id}` : "";
-    const multiKey = [...multiSelectedItemKeys].sort().join(",");
+  function selectionListContentSignature(items) {
     const itemKey = items.map((item) => [
       item.type,
       item.id,
@@ -2932,7 +2958,23 @@
       item.color || "",
       item.dotStyle || ""
     ].join("~")).join("|");
-    return `${isViewMode() ? "view" : "edit"}/${selectedKey}/${multiKey}/${itemKey}`;
+    return items.length ? itemKey : "__empty__";
+  }
+
+  function updateSelectionListState(options = {}) {
+    if (!selectionList) return;
+    if (options.skipHiddenMobileList && window.innerWidth <= 760 && toolPanel?.dataset.mobilePanel !== "select") return;
+    selectionList.querySelectorAll(".selection-item").forEach((row) => {
+      const type = row.dataset.type || "";
+      const id = row.dataset.id || "";
+      row.classList.toggle("is-active", isSelected(type, id));
+      row.classList.toggle("is-multi-selected", isMultiSelectedItem(type, id));
+      const checkbox = row.querySelector(".selection-check");
+      if (checkbox) {
+        checkbox.checked = isMultiSelectedItem("node", id);
+        checkbox.disabled = isViewMode();
+      }
+    });
   }
 
   function toggleMultiSelectedNode(id, force) {
@@ -4858,7 +4900,7 @@
         original: { x: state.viewport.x, y: state.viewport.y },
         moved: false
       };
-      render();
+      renderViewSelection();
       return;
     }
 
