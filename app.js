@@ -434,6 +434,7 @@
         gradient: defaultGradient(PALETTE[state.nodes.length % PALETTE.length]),
         marks: [],
         image: "",
+        imageBackgroundColor: "#ffffff",
         imageScale: 1,
         imageOffsetX: 0,
         imageOffsetY: 0
@@ -1529,6 +1530,14 @@
         height: imageBox.h
       }));
       g.appendChild(clip);
+      g.appendChild(createSvg("rect", {
+        x: imageBox.x,
+        y: imageBox.y,
+        width: imageBox.w,
+        height: imageBox.h,
+        fill: node.imageBackgroundColor || "#ffffff",
+        "pointer-events": "none"
+      }));
       appendRasterImage(g, node.image, {
         x: imageDraw.x,
         y: imageDraw.y,
@@ -3727,6 +3736,10 @@
     form.appendChild(field("グラデーション", gradientControls(node)));
     form.appendChild(field("属性マーク", nodeMarkControls(node)));
     form.appendChild(field("画像", imageUploadControl(node)));
+    form.appendChild(field("画像背景色", swatches(node.imageBackgroundColor || "#ffffff", (value) => {
+      node.imageBackgroundColor = value;
+      scheduleChange();
+    }, ["#ffffff", "#202329", "#f9faf7", "#eef4ef", "#fff2ef", ...PALETTE])));
     if (node.image) form.appendChild(imageCropControls(node));
     form.appendChild(field("サイズ", nodeSizePresetControls(node)));
     form.appendChild(sizeControls(node, "node"));
@@ -7235,6 +7248,7 @@
         roleOutlineWidth: normalizeNodeOutlineWidth(node.roleOutlineWidth),
         marks: normalizeNodeMarks(node.marks),
         image: typeof node.image === "string" ? node.image : "",
+        imageBackgroundColor: normalizeColorValue(node.imageBackgroundColor, "#ffffff"),
         imageNaturalWidth: Math.max(0, Number(node.imageNaturalWidth) || 0),
         imageNaturalHeight: Math.max(0, Number(node.imageNaturalHeight) || 0),
         imageScale: clamp(Number(node.imageScale) || 1, 1, 4),
