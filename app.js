@@ -3753,6 +3753,7 @@
     const totalSelected = multiSelectedCount();
     const additionalSelection = totalSelected > nodes.length ? `（人物以外 ${totalSelected - nodes.length}件は対象外）` : "";
     form.appendChild(el("div", { class: "bulk-node-edit-summary" }, `人物 ${nodes.length}人に一括適用${additionalSelection}`));
+    form.appendChild(multiNodeSizeControls(nodes));
     form.appendChild(field("色", swatches(sharedNodeColor(nodes), (value) => {
       nodes.forEach((node) => {
         node.color = value;
@@ -5160,6 +5161,37 @@
       scheduleChange();
     })));
     return row;
+  }
+
+  function multiNodeSizeControls(nodes) {
+    const row = el("div", { class: "field-row" });
+    row.appendChild(field("幅", multiNodeDimensionControl(nodes, "w", 82, 220, NODE_DEFAULT_WIDTH)));
+    row.appendChild(field("高さ", multiNodeDimensionControl(nodes, "h", 110, 260, NODE_DEFAULT_HEIGHT)));
+    return row;
+  }
+
+  function multiNodeDimensionControl(nodes, key, min, max, fallback) {
+    const values = nodes.map((node) => clamp(Math.round(Number(node[key]) || fallback), min, max));
+    const shared = sharedValue(values);
+    const initial = shared === ""
+      ? Math.round(values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length))
+      : shared;
+    const wrap = el("div", { class: "range-with-value" });
+    const input = el("input", { type: "range", min, max, value: initial, step: 1 });
+    const output = el("output", {}, shared === "" ? "混在" : `${shared}px`);
+    input.addEventListener("input", () => {
+      const next = Number(input.value);
+      output.value = `${Math.round(next)}px`;
+      output.textContent = `${Math.round(next)}px`;
+      nodes.forEach((node) => {
+        node[key] = next;
+      });
+      scheduleChange();
+    });
+    input.addEventListener("change", () => commitChange());
+    wrap.appendChild(input);
+    wrap.appendChild(output);
+    return wrap;
   }
 
   function nodeSizePresetControls(node) {
