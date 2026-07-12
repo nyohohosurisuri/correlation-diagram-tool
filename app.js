@@ -21,9 +21,9 @@
   const PNG_MAX_PIXELS = 64000000;
   const PNG_MIN_RENDER_SCALE = 2;
   const NODE_DEFAULT_WIDTH = 120;
-  const NODE_DEFAULT_HEIGHT = 130;
+  const NODE_DEFAULT_HEIGHT = 140;
   const NODE_SIZE_PRESETS = [
-    { id: "small", label: "小", w: 120, h: 130 },
+    { id: "small", label: "小", w: 120, h: 140 },
     { id: "medium", label: "中", w: 150, h: 160 },
     { id: "large", label: "大", w: 170, h: 180 }
   ];
@@ -4602,6 +4602,47 @@
     return wrap;
   }
 
+  function rangeWithNumberInput(value, min, max, onInput, step = 1, options = {}) {
+    const initial = clamp(Number(value) || min, min, max);
+    const wrap = el("div", { class: "range-with-value" });
+    const slider = el("input", { type: "range", min, max, value: initial, step });
+    const number = el("input", {
+      type: "number",
+      min,
+      max,
+      step,
+      value: options.mixed ? "" : initial,
+      placeholder: options.mixed ? "混在" : "",
+      inputmode: "numeric"
+    });
+    slider.addEventListener("input", () => {
+      const next = Number(slider.value);
+      number.value = String(next);
+      onInput(next);
+    });
+    slider.addEventListener("change", () => commitChange());
+    number.addEventListener("input", () => {
+      if (number.value === "") return;
+      const next = Number(number.value);
+      if (!Number.isFinite(next) || next < min || next > max) return;
+      slider.value = String(next);
+      onInput(next);
+    });
+    number.addEventListener("change", () => {
+      const next = clamp(Number(number.value) || initial, min, max);
+      number.value = String(next);
+      slider.value = String(next);
+      onInput(next);
+      commitChange();
+    });
+    number.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") number.blur();
+    });
+    wrap.appendChild(slider);
+    wrap.appendChild(number);
+    return wrap;
+  }
+
   function checkboxControl(checked, onChange, labelText = "") {
     const label = el("label", { class: "check-control" });
     const input = el("input", { type: "checkbox" });
@@ -5152,11 +5193,11 @@
     const maxWidth = kind === "node" ? 220 : kind === "shape" ? 900 : GROUP_MAX_WIDTH;
     const minHeight = kind === "node" ? 110 : kind === "shape" ? 20 : 52;
     const maxHeight = kind === "node" ? 260 : kind === "shape" ? 900 : GROUP_MAX_HEIGHT;
-    row.appendChild(field("幅", rangeWithValue(item.w, minWidth, maxWidth, (value) => {
+    row.appendChild(field("幅", rangeWithNumberInput(item.w, minWidth, maxWidth, (value) => {
       item.w = value;
       scheduleChange();
     })));
-    row.appendChild(field("高さ", rangeWithValue(item.h, minHeight, maxHeight, (value) => {
+    row.appendChild(field("高さ", rangeWithNumberInput(item.h, minHeight, maxHeight, (value) => {
       item.h = value;
       scheduleChange();
     })));
@@ -5176,22 +5217,12 @@
     const initial = shared === ""
       ? Math.round(values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length))
       : shared;
-    const wrap = el("div", { class: "range-with-value" });
-    const input = el("input", { type: "range", min, max, value: initial, step: 1 });
-    const output = el("output", {}, shared === "" ? "混在" : `${shared}px`);
-    input.addEventListener("input", () => {
-      const next = Number(input.value);
-      output.value = `${Math.round(next)}px`;
-      output.textContent = `${Math.round(next)}px`;
+    return rangeWithNumberInput(initial, min, max, (next) => {
       nodes.forEach((node) => {
         node[key] = next;
       });
       scheduleChange();
-    });
-    input.addEventListener("change", () => commitChange());
-    wrap.appendChild(input);
-    wrap.appendChild(output);
-    return wrap;
+    }, 1, { mixed: shared === "" });
   }
 
   function nodeSizePresetControls(node) {

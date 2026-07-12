@@ -760,21 +760,33 @@ body[data-tools-collapsed="true"] .tools-toggle {
 
 .range-with-value {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 62px;
+  grid-template-columns: minmax(0, 1fr) 88px;
   align-items: center;
   gap: 8px;
 }
 
-.range-with-value output {
-  display: grid;
-  place-items: center;
+.range-with-value output,
+.range-with-value input[type="number"] {
   min-height: 36px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel-2);
   color: var(--ink);
-  font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.range-with-value output {
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+
+.range-with-value input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 3px 4px 7px;
+  text-align: center;
+  font-size: 16px;
 }
 
 .node-size-presets {
