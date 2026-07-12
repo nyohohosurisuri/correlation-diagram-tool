@@ -1553,6 +1553,16 @@ body[data-tools-collapsed="true"] .tools-toggle {
   font-weight: 700;
 }
 
+.png-size-preview.is-over-limit {
+  border-color: #d89991;
+  background: #fff2ef;
+  color: #8f2d23;
+}
+
+.png-large-export-note[hidden] {
+  display: none;
+}
+
 .png-preset-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

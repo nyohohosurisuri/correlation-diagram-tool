@@ -17,9 +17,13 @@
   const DOUBLE_TAP_DISTANCE_PX = 42;
   const LINK_LABEL_DEFAULT_BACKGROUND = "#ffffff";
   const LINK_LABEL_DEFAULT_BORDER = "#202329";
-  const PNG_MAX_DIMENSION = 12000;
-  const PNG_MAX_PIXELS = 64000000;
+  const PNG_MAX_DIMENSION = 16384;
+  const PNG_MAX_PIXELS = 134217728;
   const PNG_MIN_RENDER_SCALE = 2;
+  const PNG_TILED_THRESHOLD_PIXELS = 16000000;
+  const PNG_TILE_WIDTH = 4096;
+  const PNG_TILE_HEIGHT = 512;
+  const PNG_IDAT_CHUNK_SIZE = 1048576;
   const NODE_DEFAULT_WIDTH = 120;
   const NODE_DEFAULT_HEIGHT = 140;
   const NODE_SIZE_PRESETS = [
@@ -6621,6 +6625,7 @@
     let scale = loadPngExportScale();
     const form = el("div", { class: "project-form png-export-form" });
     const sizePreview = el("div", { class: "png-size-preview" });
+    const largeExportNote = el("p", { class: "project-note png-large-export-note" });
     const scaleControl = el("div", { class: "png-scale-control" });
     const range = el("input", {
       type: "range",
@@ -6654,6 +6659,15 @@
       scaleOutput.value = `${formatScale(scale)}x`;
       scaleOutput.textContent = `${formatScale(scale)}x`;
       sizePreview.textContent = `${width} x ${height}px`;
+      const supported = pngSizeIsSupported({ width, height });
+      const tiled = supported && pngShouldUseTiledExport({ width, height });
+      sizePreview.classList.toggle("is-over-limit", !supported);
+      largeExportNote.hidden = supported && !tiled;
+      largeExportNote.textContent = !supported
+        ? `出力上限は1辺 ${PNG_MAX_DIMENSION}px・合計約1億3400万画素です。`
+        : tiled
+          ? "大サイズ用の分割描画で出力します。端末上で順番に処理するため、完了まで時間がかかります。"
+          : "";
       presetButtons.forEach(({ preset, button }) => {
         button.classList.toggle("is-active", Number(scale) === preset);
       });
@@ -6666,6 +6680,7 @@
     form.appendChild(field("倍率", scaleControl));
     form.appendChild(presetRow);
     form.appendChild(field("出力サイズ", sizePreview));
+    form.appendChild(largeExportNote);
     form.appendChild(el("p", { class: "project-note" }, "低倍率でも文字や線が潰れにくいよう、内部では高解像度で描画してからPNGサイズへ縮小します。印刷や拡大表示用は2x以上が目安です。"));
 
     const actions = el("div", { class: "project-actions" });
@@ -6989,11 +7004,12 @@
   function exportPng(scale = 1) {
     const bounds = contentBounds(36);
     const outputSize = pngOutputSize(scale, bounds);
-    if (outputSize.width > PNG_MAX_DIMENSION || outputSize.height > PNG_MAX_DIMENSION || outputSize.width * outputSize.height > PNG_MAX_PIXELS) {
-      window.alert(`PNGサイズが大きすぎます。倍率を下げてください。\n現在: ${outputSize.width} x ${outputSize.height}px`);
+    if (!pngSizeIsSupported(outputSize)) {
+      window.alert(`PNGサイズが出力上限を超えています。\n現在: ${outputSize.width} x ${outputSize.height}px\n上限: 1辺 ${PNG_MAX_DIMENSION}px・合計約1億3400万画素`);
       return;
     }
-    const renderSize = pngRenderSize(scale, bounds, outputSize);
+    const useTiledExport = pngShouldUseTiledExport(outputSize);
+    const renderSize = useTiledExport ? outputSize : pngRenderSize(scale, bounds, outputSize);
     const exportSvg = svg.cloneNode(false);
     exportSvg.setAttribute("xmlns", SVG_NS);
     exportSvg.setAttribute("xmlns:xlink", XLINK_NS);
@@ -7038,38 +7054,229 @@
     }
     exportSvg.appendChild(root);
 
+    if (useTiledExport) {
+      statusText.textContent = "大サイズPNGを準備中...";
+      exportTiledPng(exportSvg, bounds, outputSize)
+        .catch((error) => {
+          console.error(error);
+          const message = error?.message === "png_compression_unsupported"
+            ? "この端末のブラウザは大サイズPNGの分割出力に対応していません。iOSまたはブラウザを更新してください。"
+            : "大サイズPNGを書き出せませんでした。端末の空きメモリを確認して、もう一度お試しください。";
+          window.alert(message);
+        })
+        .finally(updateStatus);
+      return;
+    }
+    exportCanvasPng(exportSvg, renderSize, outputSize);
+  }
+
+  function exportCanvasPng(exportSvg, renderSize, outputSize) {
     const source = new XMLSerializer().serializeToString(exportSvg);
     const image = new Image();
     const svgBlob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(svgBlob);
     image.onload = () => {
-      const renderCanvas = document.createElement("canvas");
-      renderCanvas.width = renderSize.width;
-      renderCanvas.height = renderSize.height;
-      const renderContext = renderCanvas.getContext("2d");
-      renderContext.fillStyle = "#f9faf7";
-      renderContext.fillRect(0, 0, renderCanvas.width, renderCanvas.height);
-      renderContext.drawImage(image, 0, 0, renderCanvas.width, renderCanvas.height);
+      try {
+        const needsDownsample = renderSize.width !== outputSize.width || renderSize.height !== outputSize.height;
+        let rasterSource = image;
+        if (needsDownsample) {
+          const renderCanvas = document.createElement("canvas");
+          renderCanvas.width = renderSize.width;
+          renderCanvas.height = renderSize.height;
+          const renderContext = renderCanvas.getContext("2d");
+          if (!renderContext) throw new Error("png_canvas_unavailable");
+          renderContext.fillStyle = "#f9faf7";
+          renderContext.fillRect(0, 0, renderCanvas.width, renderCanvas.height);
+          renderContext.drawImage(image, 0, 0, renderCanvas.width, renderCanvas.height);
+          rasterSource = renderCanvas;
+        }
 
-      const canvas = document.createElement("canvas");
-      canvas.width = outputSize.width;
-      canvas.height = outputSize.height;
-      const context = canvas.getContext("2d");
-      context.fillStyle = "#f9faf7";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.imageSmoothingEnabled = true;
-      context.imageSmoothingQuality = "high";
-      context.drawImage(renderCanvas, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      canvas.toBlob((blob) => {
-        if (blob) downloadBlob(blob, "correlation-diagram.png", "image/png");
-      }, "image/png");
+        const canvas = document.createElement("canvas");
+        canvas.width = outputSize.width;
+        canvas.height = outputSize.height;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("png_canvas_unavailable");
+        context.fillStyle = "#f9faf7";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+        context.drawImage(rasterSource, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        canvas.toBlob((blob) => {
+          if (blob) downloadBlob(blob, "correlation-diagram.png", "image/png");
+          else window.alert("PNGを書き出せませんでした。");
+        }, "image/png");
+      } catch (error) {
+        URL.revokeObjectURL(url);
+        console.error(error);
+        window.alert("PNGを書き出せませんでした。");
+      }
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
       window.alert("PNGを書き出せませんでした。");
     };
     image.src = url;
+  }
+
+  async function exportTiledPng(exportSvg, bounds, outputSize) {
+    let compression;
+    try {
+      if (typeof CompressionStream !== "function") throw new Error("unsupported");
+      compression = new CompressionStream("deflate");
+    } catch {
+      throw new Error("png_compression_unsupported");
+    }
+
+    const compressedPromise = new Response(compression.readable).arrayBuffer();
+    const writer = compression.writable.getWriter();
+    const columns = Math.ceil(outputSize.width / PNG_TILE_WIDTH);
+    const rows = Math.ceil(outputSize.height / PNG_TILE_HEIGHT);
+    const totalTiles = columns * rows;
+    let completedTiles = 0;
+
+    try {
+      for (let tileY = 0; tileY < outputSize.height; tileY += PNG_TILE_HEIGHT) {
+        const tileHeight = Math.min(PNG_TILE_HEIGHT, outputSize.height - tileY);
+        const stride = outputSize.width * 4 + 1;
+        const scanlines = new Uint8Array(stride * tileHeight);
+        for (let tileX = 0; tileX < outputSize.width; tileX += PNG_TILE_WIDTH) {
+          const tileWidth = Math.min(PNG_TILE_WIDTH, outputSize.width - tileX);
+          const pixels = await renderPngTile(exportSvg, bounds, outputSize, {
+            x: tileX,
+            y: tileY,
+            width: tileWidth,
+            height: tileHeight
+          });
+          const sourceStride = tileWidth * 4;
+          for (let row = 0; row < tileHeight; row += 1) {
+            const sourceStart = row * sourceStride;
+            const targetStart = row * stride + 1 + tileX * 4;
+            scanlines.set(pixels.subarray(sourceStart, sourceStart + sourceStride), targetStart);
+          }
+          completedTiles += 1;
+          statusText.textContent = `大サイズPNGを分割描画中... ${Math.round(completedTiles / totalTiles * 100)}%`;
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+        await writer.write(scanlines);
+      }
+      statusText.textContent = "大サイズPNGを圧縮中...";
+      await writer.close();
+    } catch (error) {
+      await writer.abort(error).catch(() => {});
+      await compressedPromise.catch(() => {});
+      throw error;
+    }
+
+    const compressed = new Uint8Array(await compressedPromise);
+    statusText.textContent = "PNGファイルを作成中...";
+    const pngBlob = createPngBlob(outputSize.width, outputSize.height, compressed);
+    downloadBlob(pngBlob, "correlation-diagram.png", "image/png");
+  }
+
+  async function renderPngTile(exportSvg, bounds, outputSize, tile) {
+    const fitScale = Math.min(
+      outputSize.width / Math.max(1, bounds.w),
+      outputSize.height / Math.max(1, bounds.h)
+    );
+    const contentWidth = bounds.w * fitScale;
+    const contentHeight = bounds.h * fitScale;
+    const offsetX = (outputSize.width - contentWidth) / 2;
+    const offsetY = (outputSize.height - contentHeight) / 2;
+    const viewX = bounds.x + (tile.x - offsetX) / fitScale;
+    const viewY = bounds.y + (tile.y - offsetY) / fitScale;
+    const viewWidth = tile.width / fitScale;
+    const viewHeight = tile.height / fitScale;
+
+    exportSvg.setAttribute("width", tile.width);
+    exportSvg.setAttribute("height", tile.height);
+    exportSvg.setAttribute("viewBox", `${viewX} ${viewY} ${viewWidth} ${viewHeight}`);
+    exportSvg.setAttribute("preserveAspectRatio", "none");
+    const source = new XMLSerializer().serializeToString(exportSvg);
+    const { image, url } = await loadPngSvgImage(source);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = tile.width;
+      canvas.height = tile.height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) throw new Error("png_canvas_unavailable");
+      context.fillStyle = "#f9faf7";
+      context.fillRect(0, 0, tile.width, tile.height);
+      context.drawImage(image, 0, 0, tile.width, tile.height);
+      return context.getImageData(0, 0, tile.width, tile.height).data;
+    } finally {
+      URL.revokeObjectURL(url);
+      image.src = "";
+    }
+  }
+
+  function loadPngSvgImage(source) {
+    return new Promise((resolve, reject) => {
+      const blob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const image = new Image();
+      image.decoding = "async";
+      image.onload = () => resolve({ image, url });
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("png_svg_decode_failed"));
+      };
+      image.src = url;
+    });
+  }
+
+  function createPngBlob(width, height, compressed) {
+    const header = new Uint8Array(13);
+    const headerView = new DataView(header.buffer);
+    headerView.setUint32(0, width, false);
+    headerView.setUint32(4, height, false);
+    header[8] = 8;
+    header[9] = 6;
+    const parts = [
+      Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10),
+      ...pngChunkParts("IHDR", header)
+    ];
+    for (let offset = 0; offset < compressed.length; offset += PNG_IDAT_CHUNK_SIZE) {
+      parts.push(...pngChunkParts("IDAT", compressed.subarray(offset, offset + PNG_IDAT_CHUNK_SIZE)));
+    }
+    parts.push(...pngChunkParts("IEND", new Uint8Array(0)));
+    return new Blob(parts, { type: "image/png" });
+  }
+
+  function pngChunkParts(type, data) {
+    const typeBytes = Uint8Array.from(type, (character) => character.charCodeAt(0));
+    return [
+      pngUint32(data.length),
+      typeBytes,
+      data,
+      pngUint32(pngCrc32(typeBytes, data))
+    ];
+  }
+
+  function pngUint32(value) {
+    const bytes = new Uint8Array(4);
+    new DataView(bytes.buffer).setUint32(0, value >>> 0, false);
+    return bytes;
+  }
+
+  function pngCrc32(...arrays) {
+    if (!pngCrc32.table) {
+      pngCrc32.table = new Uint32Array(256);
+      for (let index = 0; index < 256; index += 1) {
+        let value = index;
+        for (let bit = 0; bit < 8; bit += 1) {
+          value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+        }
+        pngCrc32.table[index] = value >>> 0;
+      }
+    }
+    let crc = 0xffffffff;
+    arrays.forEach((array) => {
+      for (let index = 0; index < array.length; index += 1) {
+        crc = pngCrc32.table[(crc ^ array[index]) & 0xff] ^ (crc >>> 8);
+      }
+    });
+    return (crc ^ 0xffffffff) >>> 0;
   }
 
   function pushHistory() {
@@ -7243,6 +7450,18 @@
       width: Math.max(1, Math.round(baseWidth * factor)),
       height: Math.max(1, Math.round(baseHeight * factor))
     };
+  }
+
+  function pngSizeIsSupported(size) {
+    return size.width <= PNG_MAX_DIMENSION
+      && size.height <= PNG_MAX_DIMENSION
+      && size.width * size.height <= PNG_MAX_PIXELS;
+  }
+
+  function pngShouldUseTiledExport(size) {
+    return size.width > PNG_TILE_WIDTH
+      || size.height > PNG_TILE_WIDTH
+      || size.width * size.height > PNG_TILED_THRESHOLD_PIXELS;
   }
 
   function pngRenderSize(scale, bounds = contentBounds(36), outputSize = pngOutputSize(scale, bounds)) {
