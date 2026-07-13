@@ -6631,12 +6631,23 @@
       type: "range",
       min: 0.5,
       max: 4,
-      step: 0.5,
+      step: 0.1,
       value: scale
     });
-    const scaleOutput = el("output", {}, `${formatScale(scale)}x`);
+    const scaleNumberWrap = el("div", { class: "png-scale-number" });
+    const scaleNumber = el("input", {
+      type: "number",
+      min: 0.5,
+      max: 4,
+      step: 0.1,
+      value: formatScale(scale),
+      inputmode: "decimal",
+      "aria-label": "PNG出力倍率"
+    });
+    scaleNumberWrap.appendChild(scaleNumber);
+    scaleNumberWrap.appendChild(el("span", {}, "x"));
     scaleControl.appendChild(range);
-    scaleControl.appendChild(scaleOutput);
+    scaleControl.appendChild(scaleNumberWrap);
 
     const presetRow = el("div", { class: "png-preset-row" });
     const presetButtons = [1, 2, 3, 4].map((preset) => {
@@ -6645,19 +6656,18 @@
         class: Number(scale) === preset ? "is-active" : ""
       }, `${preset}x`);
       button.addEventListener("click", () => {
-        scale = preset;
-        range.value = String(scale);
-        updatePreview();
+        updatePreview(preset);
       });
       presetRow.appendChild(button);
       return { preset, button };
     });
 
-    function updatePreview() {
-      scale = clamp(Number(range.value) || 1, 0.5, 4);
+    function updatePreview(value = scale, options = {}) {
+      const { syncRange = true, syncNumber = true } = options;
+      scale = normalizePngExportScale(value, scale);
+      if (syncRange) range.value = String(scale);
+      if (syncNumber) scaleNumber.value = formatScale(scale);
       const { width, height } = pngOutputSize(scale);
-      scaleOutput.value = `${formatScale(scale)}x`;
-      scaleOutput.textContent = `${formatScale(scale)}x`;
       sizePreview.textContent = `${width} x ${height}px`;
       const supported = pngSizeIsSupported({ width, height });
       const tiled = supported && pngShouldUseTiledExport({ width, height });
@@ -6669,12 +6679,22 @@
           ? "大サイズ用の分割描画で出力します。端末上で順番に処理するため、完了まで時間がかかります。"
           : "";
       presetButtons.forEach(({ preset, button }) => {
-        button.classList.toggle("is-active", Number(scale) === preset);
+        button.classList.toggle("is-active", Math.abs(scale - preset) < 0.001);
       });
     }
 
-    range.addEventListener("input", updatePreview);
+    range.addEventListener("input", () => updatePreview(range.value, { syncRange: false }));
     range.addEventListener("change", () => savePngExportScale(scale));
+    scaleNumber.addEventListener("input", () => {
+      if (scaleNumber.value === "") return;
+      const enteredScale = Number(scaleNumber.value);
+      if (!Number.isFinite(enteredScale)) return;
+      updatePreview(enteredScale, { syncNumber: false });
+    });
+    scaleNumber.addEventListener("change", () => {
+      updatePreview(scaleNumber.value === "" ? scale : scaleNumber.value);
+      savePngExportScale(scale);
+    });
     updatePreview();
 
     form.appendChild(field("倍率", scaleControl));
@@ -6686,6 +6706,7 @@
     const actions = el("div", { class: "project-actions" });
     const exportButton = el("button", { type: "button", class: "primary-action" }, "PNGを書き出し");
     exportButton.addEventListener("click", () => {
+      updatePreview(scaleNumber.value === "" ? scale : scaleNumber.value);
       savePngExportScale(scale);
       closeProjectDialog();
       exportPng(scale);
@@ -7428,7 +7449,7 @@
 
   function loadPngExportScale() {
     try {
-      return clamp(Number(localStorage.getItem(PNG_SCALE_KEY)) || 1, 0.5, 4);
+      return normalizePngExportScale(localStorage.getItem(PNG_SCALE_KEY), 1);
     } catch {
       return 1;
     }
@@ -7436,16 +7457,22 @@
 
   function savePngExportScale(scale) {
     try {
-      localStorage.setItem(PNG_SCALE_KEY, String(clamp(Number(scale) || 1, 0.5, 4)));
+      localStorage.setItem(PNG_SCALE_KEY, String(normalizePngExportScale(scale, 1)));
     } catch {
       // Local storage can be unavailable in restrictive browser modes.
     }
   }
 
+  function normalizePngExportScale(value, fallback = 1) {
+    const numeric = value === null || value === "" ? Number.NaN : Number(value);
+    const safeValue = Number.isFinite(numeric) ? numeric : Number(fallback) || 1;
+    return Math.round(clamp(safeValue, 0.5, 4) * 10) / 10;
+  }
+
   function pngOutputSize(scale, bounds = contentBounds(36)) {
     const baseWidth = Math.max(720, Math.ceil(bounds.w));
     const baseHeight = Math.max(480, Math.ceil(bounds.h));
-    const factor = clamp(Number(scale) || 1, 0.5, 4);
+    const factor = normalizePngExportScale(scale, 1);
     return {
       width: Math.max(1, Math.round(baseWidth * factor)),
       height: Math.max(1, Math.round(baseHeight * factor))
@@ -7465,7 +7492,7 @@
   }
 
   function pngRenderSize(scale, bounds = contentBounds(36), outputSize = pngOutputSize(scale, bounds)) {
-    const outputScale = clamp(Number(scale) || 1, 0.5, 4);
+    const outputScale = normalizePngExportScale(scale, 1);
     const desiredRenderScale = Math.max(outputScale, PNG_MIN_RENDER_SCALE);
     let factor = Math.max(1, desiredRenderScale / outputScale);
     const dimensionLimit = Math.min(PNG_MAX_DIMENSION / outputSize.width, PNG_MAX_DIMENSION / outputSize.height);

@@ -1535,12 +1535,12 @@ body[data-tools-collapsed="true"] .tools-toggle {
 
 .png-scale-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 56px;
+  grid-template-columns: minmax(0, 1fr) 88px;
   align-items: center;
   gap: 10px;
 }
 
-.png-scale-control output,
+.png-scale-number,
 .png-size-preview {
   display: grid;
   place-items: center;
@@ -1551,6 +1551,33 @@ body[data-tools-collapsed="true"] .tools-toggle {
   color: var(--ink);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+}
+
+.png-scale-number {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-right: 10px;
+}
+
+.png-scale-number input {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 2px 6px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.png-scale-number input:focus {
+  outline: 0;
+}
+
+.png-scale-number:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(20, 125, 114, 0.14);
 }
 
 .png-size-preview.is-over-limit {
