@@ -4468,8 +4468,6 @@
   function endpointAnchorControls(link, side, endpointId) {
     const wrap = el("div", { class: "endpoint-anchor-controls" });
     wrap.appendChild(anchorSelect(link, side, endpointId));
-    const picker = anchorPicker(link, side, endpointId);
-    if (picker) wrap.appendChild(picker);
     return wrap;
   }
 
@@ -4495,48 +4493,6 @@
       updateLinkAnchor(link, side, endpointId, select.value);
     });
     return select;
-  }
-
-  function anchorPicker(link, side, endpointId) {
-    const endpoint = getConnectionEndpoint(endpointId);
-    if (!endpoint) return null;
-    const item = endpoint.item;
-    const current = getLinkAnchor(link, side, endpointId);
-    const ratio = anchorRatioFromValue(current) || { x: 0.5, y: 0.5 };
-    const picker = el("button", {
-      type: "button",
-      class: "endpoint-anchor-picker",
-      title: "接続位置"
-    });
-    const card = el("span", { class: "endpoint-anchor-card" });
-    card.appendChild(el("span", {
-      class: "endpoint-anchor-role",
-      style: `background:${item.color || "#6c7a89"}`
-    }, truncate(endpoint.label || "項目", 7)));
-    card.appendChild(el("span", {
-      class: "endpoint-anchor-image",
-      style: `background:${hexToRgba(item.color || "#6c7a89", 0.13)}`
-    }));
-    card.appendChild(el("span", {
-      class: "endpoint-anchor-name",
-      style: `background:${item.color || "#6c7a89"}`
-    }, truncate(endpoint.label || "項目", 7)));
-    card.appendChild(el("span", {
-      class: `endpoint-anchor-dot${isCustomAnchor(current) ? " is-custom" : ""}`,
-      style: `left:${ratio.x * 100}%;top:${ratio.y * 100}%`
-    }));
-    picker.appendChild(card);
-    picker.addEventListener("pointerdown", (event) => {
-      event.stopPropagation();
-      resetWorkspaceGesture();
-    });
-    picker.addEventListener("click", (event) => {
-      const rect = card.getBoundingClientRect();
-      const rx = clamp((event.clientX - rect.left) / rect.width, 0, 1);
-      const ry = clamp((event.clientY - rect.top) / rect.height, 0, 1);
-      updateLinkAnchor(link, side, endpointId, makeCustomAnchor(rx, ry));
-    });
-    return picker;
   }
 
   function field(labelText, control) {
