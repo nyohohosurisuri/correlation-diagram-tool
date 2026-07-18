@@ -817,6 +817,7 @@
   function renderEditSelection(options = {}) {
     cancelScheduledRenders();
     updateRenderShellState();
+    const linkSelectionReady = refreshImmediateLinkSelection();
     updateImmediateSelectionFeedback();
     if (options.openInspector) renderInspector();
     updateStatus();
@@ -825,7 +826,7 @@
     updateToolsToggle();
     updateModeControls();
     updateSelectionListState({ skipHiddenMobileList: true });
-    if (options.deferDiagram) requestDeferredSelectionDiagramRender();
+    if (options.deferDiagram && !linkSelectionReady) requestDeferredSelectionDiagramRender();
   }
 
   function updateImmediateSelectionFeedback() {
@@ -965,10 +966,54 @@
 
   function appendLinkWithLiftedLabel(root, labelLayer, link) {
     const linkGroup = renderLink(link);
+    liftLinkLabels(linkGroup, labelLayer);
+    root.appendChild(linkGroup);
+  }
+
+  function liftLinkLabels(linkGroup, labelLayer) {
     linkGroup.querySelectorAll("[data-type='link-label']").forEach((label) => {
       labelLayer.appendChild(label);
     });
-    root.appendChild(linkGroup);
+  }
+
+  function refreshImmediateLinkSelection() {
+    if (!diagramRoot?.isConnected) return false;
+    const currentId = selected?.type === "link" ? selected.id : "";
+    const activeGroups = [...diagramRoot.querySelectorAll("g[data-type='link'][data-selected='true']")];
+    const idsToRefresh = new Set(activeGroups.map((group) => group.getAttribute("data-id")).filter(Boolean));
+    const currentGroup = findRenderedLinkGroup(currentId);
+    if (currentId && currentGroup?.getAttribute("data-selected") !== "true") idsToRefresh.add(currentId);
+
+    let changed = false;
+    idsToRefresh.forEach((id) => {
+      const link = getLink(id);
+      const rendered = findRenderedLinkGroup(id);
+      if (!link || !rendered) return;
+      const labelLayer = [...diagramRoot.children].find((child) => child.getAttribute?.("data-layer") === "link-labels");
+      if (!labelLayer) return;
+      [...labelLayer.children]
+        .filter((child) => child.getAttribute?.("data-type") === "link-label" && child.getAttribute?.("data-id") === id)
+        .forEach((label) => label.remove());
+      const replacement = renderLink(link);
+      liftLinkLabels(replacement, labelLayer);
+      rendered.replaceWith(replacement);
+      changed = true;
+    });
+
+    const anchorLayer = [...diagramRoot.children].find((child) => child.getAttribute?.("data-layer") === "link-anchors");
+    if (changed || (!currentId && anchorLayer) || (currentId && !anchorLayer)) {
+      anchorLayer?.remove();
+      if (currentId) appendSelectedLinkAnchorHandles(diagramRoot);
+    }
+    return Boolean(currentId && findRenderedLinkGroup(currentId)?.getAttribute("data-selected") === "true");
+  }
+
+  function findRenderedLinkGroup(id) {
+    if (!id || !diagramRoot) return null;
+    return [...diagramRoot.children].find((child) => (
+      child.getAttribute?.("data-type") === "link"
+      && child.getAttribute?.("data-id") === id
+    )) || null;
   }
 
   function cancelScheduledRenders() {
@@ -2355,13 +2400,13 @@
   function renderLink(link) {
     const fromEndpoints = getLinkEndpointEntries(link, "from");
     const toEndpoints = getLinkEndpointEntries(link, "to");
-    if (!fromEndpoints.length || !toEndpoints.length) return createSvg("g");
-
     const active = isSelected("link", link.id);
     const g = createSvg("g", {
       "data-type": "link",
-      "data-id": link.id
+      "data-id": link.id,
+      "data-selected": active ? "true" : "false"
     });
+    if (!fromEndpoints.length || !toEndpoints.length) return g;
 
     const route = link.route || "orthogonal";
     if (route === "straight") {
