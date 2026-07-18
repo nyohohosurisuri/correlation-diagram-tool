@@ -835,7 +835,8 @@
     if (!diagramRoot) return;
     diagramRoot.querySelector("[data-layer='selection-feedback']")?.remove();
     const selectedNodes = state.nodes.filter((node) => isSelected("node", node.id) || isMultiSelectedItem("node", node.id));
-    if (!selectedNodes.length) return;
+    const selectedGroups = state.groups.filter((group) => isSelected("group", group.id) || isMultiSelectedItem("group", group.id));
+    if (!selectedNodes.length && !selectedGroups.length) return;
     const layer = createSvg("g", {
       "data-layer": "selection-feedback",
       "pointer-events": "none"
@@ -857,6 +858,44 @@
         cy: node.y,
         r: 5,
         fill: "#202329",
+        "pointer-events": "none"
+      }));
+    });
+    selectedGroups.forEach((group) => {
+      const shapeAttrs = {
+        fill: "none",
+        stroke: "#202329",
+        "stroke-width": 3,
+        "stroke-dasharray": "8 6",
+        "stroke-linejoin": "round",
+        "pointer-events": "none"
+      };
+      if (normalizeGroupShape(group.shape) === "rect") {
+        layer.appendChild(createSvg("rect", {
+          x: group.x,
+          y: group.y,
+          width: group.w,
+          height: group.h,
+          rx: 8,
+          ...shapeAttrs
+        }));
+      } else {
+        layer.appendChild(createSvg("path", {
+          d: groupShapePath(group),
+          ...shapeAttrs
+        }));
+      }
+      const titleTab = groupTitleTabMetrics(group, normalizeGroupTitleFontSize(group.titleFontSize));
+      layer.appendChild(createSvg("rect", {
+        x: titleTab.x,
+        y: titleTab.y,
+        width: titleTab.w,
+        height: titleTab.h,
+        rx: Math.min(8, titleTab.h / 3),
+        fill: "none",
+        stroke: "#202329",
+        "stroke-width": 3,
+        "stroke-linejoin": "round",
         "pointer-events": "none"
       }));
     });
@@ -909,6 +948,7 @@
       state.images.forEach((imageItem) => root.appendChild(renderInsertedImage(imageItem)));
       state.legends.forEach((legend) => root.appendChild(renderLegend(legend)));
       state.texts.forEach((textItem) => root.appendChild(renderTextItem(textItem)));
+      appendGroupTitleHitTargets(root);
       if (drag?.type === "marquee") root.appendChild(renderMarqueeSelection(drag));
       state.groups.forEach((group) => {
         const handle = renderGroupResizeHandle(group);
@@ -917,6 +957,7 @@
         if (notchHandle) root.appendChild(notchHandle);
       });
       appendSelectedLinkAnchorHandles(root);
+      updateImmediateSelectionFeedback();
     } finally {
       fastDiagramRender = previousFastDiagramRender;
     }
@@ -1231,7 +1272,6 @@
   }
 
   function renderGroup(group) {
-    const active = isSelected("group", group.id) || isMultiSelectedItem("group", group.id);
     const titleFontSize = normalizeGroupTitleFontSize(group.titleFontSize);
     const titleOutlineWidth = normalizeGroupTitleOutlineWidth(group.titleOutlineWidth);
     const titleBackgroundOpacity = normalizeGroupTitleBackgroundOpacity(group.titleBackgroundOpacity);
@@ -1245,8 +1285,8 @@
     });
     const groupShapeAttrs = {
       fill: objectGradientFill(group, "group-bg", fillOpacity),
-      stroke: active ? "#202329" : objectGradientFill(group, "group"),
-      "stroke-width": active ? 3 : 2,
+      stroke: objectGradientFill(group, "group"),
+      "stroke-width": 2,
       "stroke-dasharray": "8 6",
       "stroke-linejoin": "round"
     };
@@ -1273,8 +1313,8 @@
       height: titleTab.h,
       rx: Math.min(8, titleTab.h / 3),
       fill: objectGradientFill(group, "group-title", titleBackgroundOpacity),
-      stroke: active ? "#202329" : objectGradientFill(group, "group"),
-      "stroke-width": active ? 3 : 2,
+      stroke: objectGradientFill(group, "group"),
+      "stroke-width": 2,
       "stroke-linejoin": "round"
     }));
     g.appendChild(createSvg("text", {
@@ -1292,6 +1332,27 @@
       "stroke-linejoin": "round"
     }, group.title || "グループ"));
     return g;
+  }
+
+  function appendGroupTitleHitTargets(root) {
+    if (!state.groups.length) return;
+    const layer = createSvg("g", { "data-layer": "group-title-hit-targets" });
+    state.groups.forEach((group) => {
+      const titleTab = groupTitleTabMetrics(group, normalizeGroupTitleFontSize(group.titleFontSize));
+      layer.appendChild(createSvg("rect", {
+        x: titleTab.x,
+        y: titleTab.y,
+        width: titleTab.w,
+        height: titleTab.h,
+        rx: Math.min(8, titleTab.h / 3),
+        fill: "transparent",
+        "pointer-events": "all",
+        "data-type": "group-title",
+        "data-id": group.id,
+        class: "node-handle"
+      }));
+    });
+    root.appendChild(layer);
   }
 
   function groupShapePath(group, shape = normalizeGroupShape(group.shape)) {
@@ -5344,7 +5405,7 @@
       return;
     }
 
-    if (target?.type === "group") {
+    if (target?.type === "group" || target?.type === "group-title") {
       const group = getGroup(target.id);
       if (!group) return;
       if (mode === "connect") {
@@ -5352,7 +5413,8 @@
         return;
       }
       const previousSelection = selected ? { ...selected } : null;
-      const selectedGroupUnderPoint = previousSelection?.type === "group" && previousSelection.id !== group.id
+      const directTitleSelection = target.type === "group-title";
+      const selectedGroupUnderPoint = !directTitleSelection && previousSelection?.type === "group" && previousSelection.id !== group.id
         ? groupAtPoint(previousSelection.id, point)
         : null;
       const interactionGroup = selectedGroupUnderPoint || group;
@@ -5378,7 +5440,7 @@
           y: interactionGroup.y,
           containedItems: groupMoveContentsEnabled() ? collectGroupDragItems(interactionGroup) : null
         },
-        previousSelection: selectedGroupUnderPoint ? null : previousSelection,
+        previousSelection: directTitleSelection || selectedGroupUnderPoint ? null : previousSelection,
         moved: false
       };
       renderEditSelection({ deferDiagram: true });
@@ -5945,6 +6007,7 @@
       return getLink(target.id) ? { type: "link", id: target.id } : null;
     }
     if (target.type === "node") return getNode(target.id) ? { type: "node", id: target.id } : null;
+    if (target.type === "group-title") return getGroup(target.id) ? { type: "group", id: target.id } : null;
     if (target.type === "group") return groupSelectionAtPoint(point, previousSelection) || (getGroup(target.id) ? { type: "group", id: target.id } : null);
     if (target.type === "text") return getTextItem(target.id) ? { type: "text", id: target.id } : null;
     if (target.type === "shape") return getShape(target.id) ? { type: "shape", id: target.id } : null;
@@ -8391,7 +8454,7 @@
   }
 
   function isConnectableTarget(target) {
-    return (target?.type === "node" || target?.type === "group") && Boolean(getConnectionEndpoint(target.id));
+    return (target?.type === "node" || target?.type === "group" || target?.type === "group-title") && Boolean(getConnectionEndpoint(target.id));
   }
 
   function isSelected(type, id) {
