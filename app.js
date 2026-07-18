@@ -636,6 +636,9 @@
     svg.addEventListener("pointerup", onPointerUp);
     svg.addEventListener("pointercancel", onPointerUp);
     svg.addEventListener("wheel", onWheel, { passive: false });
+    svg.addEventListener("auxclick", (event) => {
+      if (event.button === 1) event.preventDefault();
+    });
 
     document.querySelector(".inspector")?.addEventListener("pointerdown", resetWorkspaceGesture);
     window.addEventListener("pointerup", onGlobalPointerRelease);
@@ -5276,6 +5279,17 @@
 
     if (workspacePointers.size >= 2) {
       startWorkspacePinch();
+      return;
+    }
+
+    if (event.button === 1) {
+      drag = {
+        type: "pan",
+        pointerId: event.pointerId,
+        start: screen,
+        original: { x: state.viewport.x, y: state.viewport.y },
+        moved: false
+      };
       return;
     }
 
