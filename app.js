@@ -8526,20 +8526,66 @@
     const anchors = attachmentAnchors(item);
     const selectedAnchor = getLinkAnchor(link, side, endpointId);
     const customAnchor = parseCustomAnchor(selectedAnchor);
+    let point = null;
     if (customAnchor) {
-      return {
+      point = {
         x: item.x + item.w * customAnchor.x,
         y: item.y + item.h * customAnchor.y
       };
     }
-    if (selectedAnchor !== "auto") {
+    if (!point && selectedAnchor !== "auto") {
       const anchor = anchors.find((candidate) => candidate.key === selectedAnchor);
-      if (anchor) return anchor.point;
+      if (anchor) point = anchor.point;
     }
-    const preferred = nearestAnchorIndex(anchors, toward);
-    const spreadIndex = endpointUsageIndex(endpointId, link.id, side);
-    const anchorIndex = wrapIndex(preferred + anchorSpreadOffset(spreadIndex), anchors.length);
-    return anchors[anchorIndex].point;
+    if (!point) {
+      const preferred = nearestAnchorIndex(anchors, toward);
+      const spreadIndex = endpointUsageIndex(endpointId, link.id, side);
+      const anchorIndex = wrapIndex(preferred + anchorSpreadOffset(spreadIndex), anchors.length);
+      point = anchors[anchorIndex].point;
+    }
+    return avoidGroupTitleTabAttachment(item, point, link);
+  }
+
+  function avoidGroupTitleTabAttachment(item, point, link) {
+    const group = item && Object.prototype.hasOwnProperty.call(item, "title") ? item : null;
+    if (!group || !point) return point;
+    const tab = groupTitleTabMetrics(group, normalizeGroupTitleFontSize(group.titleFontSize));
+    const clearance = Math.max(10, (Number(link?.width) || 1.5) * 6 + 4);
+    const insideTabClearance = point.x >= tab.x - clearance
+      && point.x <= tab.x + tab.w + clearance
+      && point.y >= tab.y - clearance
+      && point.y <= tab.y + tab.h + clearance;
+    if (!insideTabClearance) return point;
+
+    const shape = normalizeGroupShape(group.shape);
+    const notchW = normalizeGroupNotchWidth(group);
+    const notchH = normalizeGroupNotchHeight(group);
+    const left = group.x;
+    const right = group.x + group.w;
+    const bottom = group.y + group.h;
+    let topStart = left;
+    let topEnd = right;
+    if (shape === "l-top-left") topStart += notchW;
+    if (shape === "l-top-right") topEnd -= notchW;
+
+    const candidates = [];
+    const leftTopEnd = Math.min(topEnd, tab.x - clearance);
+    if (leftTopEnd >= topStart) {
+      candidates.push({ x: clamp(point.x, topStart, leftTopEnd), y: group.y });
+    }
+    const rightTopStart = Math.max(topStart, tab.x + tab.w + clearance);
+    if (rightTopStart <= topEnd) {
+      candidates.push({ x: clamp(point.x, rightTopStart, topEnd), y: group.y });
+    }
+
+    const tabSafeY = Math.min(bottom, Math.max(group.y, tab.y + tab.h + clearance));
+    const leftEdgeStart = shape === "l-top-left" ? group.y + notchH : group.y;
+    const rightEdgeStart = shape === "l-top-right" ? group.y + notchH : group.y;
+    candidates.push({ x: left, y: clamp(tabSafeY, leftEdgeStart, bottom) });
+    candidates.push({ x: right, y: clamp(tabSafeY, rightEdgeStart, bottom) });
+    return candidates.reduce((nearest, candidate) => (
+      !nearest || distance(candidate, point) < distance(nearest, point) ? candidate : nearest
+    ), null) || point;
   }
 
   function attachmentAnchors(item) {
