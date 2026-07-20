@@ -3946,10 +3946,12 @@
         scheduleChange();
       }, 1, "px"))
     ]));
-    form.appendChild(field("説明文", textarea(nodeDescription(node), (value) => {
+    const descriptionInput = textarea(nodeDescription(node), (value) => {
       node.description = value;
       scheduleChange(false);
-    })));
+    });
+    descriptionInput.classList.add("description-input");
+    form.appendChild(field("説明文", descriptionInput));
     form.appendChild(field("色", swatches(node.color, (value) => {
       node.color = value;
       scheduleChange();

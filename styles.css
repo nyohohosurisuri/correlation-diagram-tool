@@ -732,6 +732,10 @@ body[data-tools-collapsed="true"] .tools-toggle {
   resize: vertical;
 }
 
+.field > textarea.description-input {
+  min-height: 258px;
+}
+
 .field-collapse {
   display: grid;
   gap: 8px;
