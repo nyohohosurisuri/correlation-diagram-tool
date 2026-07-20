@@ -1189,6 +1189,15 @@ body[data-tools-collapsed="true"] .tools-toggle {
   cursor: grab;
 }
 
+.connection-port-handle {
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.connection-port-handle:active {
+  cursor: grabbing;
+}
+
 .node-handle:active,
 .text-handle:active,
 .shape-handle:active,

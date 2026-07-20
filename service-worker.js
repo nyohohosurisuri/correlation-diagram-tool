@@ -1,4 +1,4 @@
-const CACHE_NAME = "correlation-diagram-pwa-v49";
+const CACHE_NAME = "correlation-diagram-pwa-v50";
 const APP_SHELL = [
   "./",
   "./index.html",

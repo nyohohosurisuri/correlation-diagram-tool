@@ -223,6 +223,7 @@
   let inspectorCollapseState = new Map();
   let mode = "select";
   let pendingConnection = null;
+  let hoveredConnectionTarget = null;
   let drag = null;
   let workspacePointers = new Map();
   let workspacePinch = null;
@@ -635,6 +636,9 @@
     svg.addEventListener("pointermove", onPointerMove);
     svg.addEventListener("pointerup", onPointerUp);
     svg.addEventListener("pointercancel", onPointerUp);
+    svg.addEventListener("pointerleave", () => {
+      if (!drag) setHoveredConnectionTarget(null);
+    });
     svg.addEventListener("wheel", onWheel, { passive: false });
     svg.addEventListener("auxclick", (event) => {
       if (event.button === 1) event.preventDefault();
@@ -712,6 +716,7 @@
   }
 
   function toggleViewMode() {
+    hoveredConnectionTarget = null;
     if (isViewMode()) {
       mode = "select";
       inspectorOpen = false;
@@ -806,6 +811,7 @@
     cancelScheduledRenders();
     updateRenderShellState();
     updateImmediateSelectionFeedback();
+    refreshConnectionPortLayer();
     renderInspector();
     updateStatus();
     updateMobileToolPanel();
@@ -819,6 +825,7 @@
     updateRenderShellState();
     const linkSelectionReady = refreshImmediateLinkSelection();
     updateImmediateSelectionFeedback();
+    refreshConnectionPortLayer();
     if (options.openInspector) renderInspector();
     updateStatus();
     updateAlignControls();
@@ -903,6 +910,106 @@
     diagramRoot.appendChild(layer);
   }
 
+  function setHoveredConnectionTarget(target) {
+    const endpoint = target?.id ? getConnectionEndpoint(target.id) : null;
+    const next = endpoint && (endpoint.type === "node" || endpoint.type === "group")
+      ? { type: endpoint.type, id: target.id }
+      : null;
+    if (hoveredConnectionTarget?.type === next?.type && hoveredConnectionTarget?.id === next?.id) return;
+    hoveredConnectionTarget = next;
+    refreshConnectionPortLayer();
+  }
+
+  function updateConnectionPortHover(target) {
+    if (isViewMode()) {
+      setHoveredConnectionTarget(null);
+      return;
+    }
+    if (target?.type === "node" || target?.type === "group" || target?.type === "group-title" || target?.type === "connection-port") {
+      setHoveredConnectionTarget(target);
+      return;
+    }
+    setHoveredConnectionTarget(null);
+  }
+
+  function connectionPortOwner() {
+    if (isViewMode()) return null;
+    if (hoveredConnectionTarget) {
+      const endpoint = getConnectionEndpoint(hoveredConnectionTarget.id);
+      if (endpoint) return { id: hoveredConnectionTarget.id, ...endpoint };
+    }
+    if (selected?.type === "node" || selected?.type === "group") {
+      const endpoint = getConnectionEndpoint(selected.id);
+      if (endpoint) return { id: selected.id, ...endpoint };
+    }
+    return null;
+  }
+
+  function refreshConnectionPortLayer() {
+    if (!diagramRoot?.isConnected) return;
+    diagramRoot.querySelector("[data-layer='connection-ports']")?.remove();
+    const owner = connectionPortOwner();
+    if (!owner) return;
+    const layer = createSvg("g", { "data-layer": "connection-ports" });
+    const visualRadius = 7 / Math.max(0.01, state.viewport.scale);
+    const hitRadius = 18 / Math.max(0.01, state.viewport.scale);
+    const strokeWidth = 2 / Math.max(0.01, state.viewport.scale);
+    connectionPortPoints(owner.item).forEach((entry) => {
+      const anchor = makeCustomAnchor(
+        (entry.point.x - owner.item.x) / Math.max(1, owner.item.w),
+        (entry.point.y - owner.item.y) / Math.max(1, owner.item.h)
+      );
+      const handle = createSvg("g", {
+        "data-type": "connection-port",
+        "data-id": owner.id,
+        "data-anchor": anchor,
+        class: "connection-port-handle"
+      });
+      handle.appendChild(createSvg("title", {}, "関係線をドラッグ作成"));
+      handle.appendChild(createSvg("circle", {
+        cx: entry.point.x,
+        cy: entry.point.y,
+        r: hitRadius,
+        fill: "transparent",
+        "pointer-events": "all"
+      }));
+      handle.appendChild(createSvg("circle", {
+        cx: entry.point.x,
+        cy: entry.point.y,
+        r: visualRadius * 1.9,
+        fill: "#168cff",
+        opacity: 0.16,
+        "pointer-events": "none"
+      }));
+      handle.appendChild(createSvg("circle", {
+        cx: entry.point.x,
+        cy: entry.point.y,
+        r: visualRadius,
+        fill: "#168cff",
+        stroke: "#ffffff",
+        "stroke-width": strokeWidth,
+        "pointer-events": "none"
+      }));
+      layer.appendChild(handle);
+    });
+    diagramRoot.appendChild(layer);
+  }
+
+  function connectionPortPoints(item) {
+    const keys = new Set(["top", "right", "bottom", "left"]);
+    const points = attachmentAnchors(item)
+      .filter((anchor) => keys.has(anchor.key))
+      .map((anchor) => ({
+        key: anchor.key,
+        point: avoidGroupTitleTabAttachment(item, anchor.point, { width: 1.5 })
+      }));
+    const unique = [];
+    points.forEach((entry) => {
+      if (!unique.some((candidate) => distance(candidate.point, entry.point) < 0.5)) unique.push(entry);
+    });
+    return unique;
+  }
+
   function requestDeferredSelectionDiagramRender() {
     if (deferredSelectionRenderTimer) window.clearTimeout(deferredSelectionRenderTimer);
     deferredSelectionRenderTimer = window.setTimeout(() => {
@@ -959,6 +1066,7 @@
       });
       appendSelectedLinkAnchorHandles(root);
       updateImmediateSelectionFeedback();
+      refreshConnectionPortLayer();
     } finally {
       fastDiagramRender = previousFastDiagramRender;
     }
@@ -3151,7 +3259,7 @@
     if (!fromEndpoint || !connectionDrag.current) return createSvg("g");
     const from = fromEndpoint.item;
     const end = connectionDrag.current;
-    const start = edgePoint(from, {
+    const start = connectionDrag.startAnchorPoint || edgePoint(from, {
       x: end.x - 1,
       y: end.y - 1,
       w: 2,
@@ -5372,6 +5480,23 @@
       return;
     }
 
+    if (target?.type === "connection-port") {
+      if (event.button !== 0) return;
+      const endpoint = getConnectionEndpoint(target.id);
+      if (!endpoint || !target.anchor) return;
+      const ratio = anchorRatioFromValue(target.anchor);
+      const anchorPoint = {
+        x: endpoint.item.x + endpoint.item.w * ratio.x,
+        y: endpoint.item.y + endpoint.item.h * ratio.y
+      };
+      clearMultiSelection();
+      startConnectionGesture(event, endpoint.item, endpoint.type, anchorPoint, {
+        direct: true,
+        fromAnchor: target.anchor
+      });
+      return;
+    }
+
     if (target?.type === "group-notch") {
       const group = getGroup(target.id);
       if (!group || normalizeGroupShape(group.shape) === "rect") return;
@@ -5679,7 +5804,11 @@
       updateWorkspacePinch();
       return;
     }
-    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag) {
+      if (event.pointerType !== "touch") updateConnectionPortHover(findDiagramTarget(event.target));
+      return;
+    }
+    if (drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     if (drag.type === "pan") {
       const screen = clientToScreen(event);
@@ -5696,6 +5825,7 @@
       const dy = point.y - drag.start.y;
       drag.current = point;
       if (Math.hypot(dx, dy) > 12) drag.moved = true;
+      updateConnectionPortHover(findDiagramTarget(document.elementFromPoint(event.clientX, event.clientY)));
       requestInteractionDiagramRender();
       return;
     }
@@ -5823,9 +5953,8 @@
     if (!drag || drag.pointerId !== event.pointerId) return;
     const currentDrag = drag;
     if (currentDrag.type === "connect") {
-      finishConnectionGesture(event, currentDrag);
       drag = null;
-      render();
+      if (!finishConnectionGesture(event, currentDrag)) render();
       return;
     }
     if (currentDrag.type === "marquee") {
@@ -5865,8 +5994,7 @@
       const currentDrag = drag;
       drag = null;
       if (currentDrag.type === "connect") {
-        finishConnectionGesture(event, currentDrag);
-        render();
+        if (!finishConnectionGesture(event, currentDrag)) render();
         return;
       }
       if (currentDrag.type === "marquee") {
@@ -5894,6 +6022,8 @@
     workspacePointers.clear();
     workspacePinch = null;
     drag = null;
+    hoveredConnectionTarget = null;
+    refreshConnectionPortLayer();
   }
 
   function onWheel(event) {
@@ -6286,8 +6416,9 @@
     return Math.abs(toCenter.x - fromCenter.x) >= Math.abs(toCenter.y - fromCenter.y) ? "x" : "y";
   }
 
-  function startConnectionGesture(event, item, itemType, point) {
-    if (pendingConnection && pendingConnection !== item.id) {
+  function startConnectionGesture(event, item, itemType, point, options = {}) {
+    const direct = options.direct === true;
+    if (!direct && pendingConnection && pendingConnection !== item.id) {
       createConnection(pendingConnection, item.id);
       return;
     }
@@ -6298,21 +6429,46 @@
       from: item.id,
       start: point,
       current: point,
+      startAnchorPoint: direct ? point : null,
+      fromAnchor: direct ? String(options.fromAnchor || "") : "",
+      direct,
       moved: false,
-      hadPending: pendingConnection === item.id
+      hadPending: !direct && pendingConnection === item.id
     };
-    pendingConnection = item.id;
+    pendingConnection = direct ? null : item.id;
+    if (direct) mode = "select";
     selected = { type: itemType, id: item.id };
     inspectorOpen = false;
     svg.setPointerCapture(event.pointerId);
-    render();
+    if (direct) renderEditSelection();
+    else render();
   }
 
   function finishConnectionGesture(event, connectionDrag) {
     const target = findDiagramTarget(document.elementFromPoint(event.clientX, event.clientY));
     if (isConnectableTarget(target) && target.id !== connectionDrag.from) {
-      createConnection(connectionDrag.from, target.id);
-      return;
+      const endpoint = getConnectionEndpoint(target.id);
+      const targetPoint = clientToWorld(event);
+      const ratio = endpoint ? edgeAnchorRatioFromPoint(endpoint.item, targetPoint) : null;
+      const toAnchor = target.type === "connection-port" && target.anchor
+        ? target.anchor
+        : ratio
+          ? makeCustomAnchor(ratio.x, ratio.y)
+          : "";
+      createConnection(connectionDrag.from, target.id, {
+        fromAnchor: connectionDrag.fromAnchor,
+        toAnchor
+      });
+      return true;
+    }
+
+    if (connectionDrag.direct) {
+      pendingConnection = null;
+      const endpoint = getConnectionEndpoint(connectionDrag.from);
+      selected = endpoint ? { type: endpoint.type, id: connectionDrag.from } : null;
+      inspectorOpen = false;
+      saveToStorage();
+      return false;
     }
 
     if (!connectionDrag.moved) {
@@ -6321,7 +6477,7 @@
       selected = endpoint ? { type: endpoint.type, id: pendingConnection } : null;
       inspectorOpen = false;
       saveToStorage();
-      return;
+      return false;
     }
 
     pendingConnection = connectionDrag.from;
@@ -6329,18 +6485,21 @@
     selected = endpoint ? { type: endpoint.type, id: connectionDrag.from } : null;
     inspectorOpen = false;
     saveToStorage();
+    return false;
   }
 
-  function createConnection(fromId, toId) {
+  function createConnection(fromId, toId, anchors = {}) {
     if (!getConnectionEndpoint(fromId) || !getConnectionEndpoint(toId) || fromId === toId) return;
+    const fromAnchor = isCustomAnchor(anchors.fromAnchor) || ANCHOR_KEYS.has(anchors.fromAnchor) ? anchors.fromAnchor : "";
+    const toAnchor = isCustomAnchor(anchors.toAnchor) || ANCHOR_KEYS.has(anchors.toAnchor) ? anchors.toAnchor : "";
     const link = {
       id: uid("link"),
       from: fromId,
       to: toId,
       fromIds: [fromId],
       toIds: [toId],
-      fromAnchors: {},
-      toAnchors: {},
+      fromAnchors: fromAnchor ? { [fromId]: fromAnchor } : {},
+      toAnchors: toAnchor ? { [toId]: toAnchor } : {},
       fromTerminalOffsets: {},
       toTerminalOffsets: {},
       label: "関係",
@@ -6363,6 +6522,7 @@
     inspectorOpen = true;
     mode = "select";
     pendingConnection = null;
+    hoveredConnectionTarget = null;
     commitChange();
     render();
   }
@@ -8183,7 +8343,8 @@
         id,
         side: current.getAttribute?.("data-side") || "",
         endpointId: current.getAttribute?.("data-endpoint-id") || "",
-        axis: current.getAttribute?.("data-axis") || ""
+        axis: current.getAttribute?.("data-axis") || "",
+        anchor: current.getAttribute?.("data-anchor") || ""
       };
       current = current.parentNode;
     }
@@ -8196,7 +8357,8 @@
         id,
         side: current.getAttribute?.("data-side") || "",
         endpointId: current.getAttribute?.("data-endpoint-id") || "",
-        axis: current.getAttribute?.("data-axis") || ""
+        axis: current.getAttribute?.("data-axis") || "",
+        anchor: current.getAttribute?.("data-anchor") || ""
       };
       current = current.parentNode;
     }
@@ -8499,7 +8661,11 @@
   }
 
   function isConnectableTarget(target) {
-    return (target?.type === "node" || target?.type === "group" || target?.type === "group-title") && Boolean(getConnectionEndpoint(target.id));
+    return (target?.type === "node"
+      || target?.type === "group"
+      || target?.type === "group-title"
+      || target?.type === "connection-port")
+      && Boolean(getConnectionEndpoint(target.id));
   }
 
   function isSelected(type, id) {
