@@ -17,6 +17,7 @@
   const DOUBLE_TAP_DISTANCE_PX = 42;
   const LINK_LABEL_DEFAULT_BACKGROUND = "#ffffff";
   const LINK_LABEL_DEFAULT_BORDER = "#202329";
+  const LINK_LABEL_CLEARANCE_CLIP_ID = "link-label-clearance-clip";
   const PNG_MAX_DIMENSION = 16384;
   const PNG_MAX_PIXELS = 134217728;
   const PNG_MIN_RENDER_SCALE = 2;
@@ -1141,8 +1142,18 @@
       .filter((anchor) => keys.has(anchor.key))
       .map((anchor) => ({
         key: anchor.key,
-        point: avoidGroupTitleTabAttachment(item, anchor.point, { width: 1.5 })
+        point: anchor.point
       }));
+    if (Object.prototype.hasOwnProperty.call(item, "title")) {
+      const tab = groupTitleTabMetrics(item, normalizeGroupTitleFontSize(item.titleFontSize));
+      points.push({
+        key: "group-title",
+        point: {
+          x: clamp(tab.x + tab.w / 2, item.x, item.x + item.w),
+          y: item.y
+        }
+      });
+    }
     const unique = [];
     points.forEach((entry) => {
       if (!unique.some((candidate) => distance(candidate.point, entry.point) < 0.5)) unique.push(entry);
@@ -1191,6 +1202,7 @@
       state.links.forEach((link) => appendLinkWithLiftedLabel(root, linkLabelLayer, link));
       if (drag?.type === "connect") root.appendChild(renderConnectionPreview(drag));
       root.appendChild(linkLabelLayer);
+      refreshLinkLabelClearanceClip(defs, root, linkLabelLayer);
       state.nodes.forEach((node) => root.appendChild(renderNode(node)));
       state.shapes.forEach((shape) => root.appendChild(renderShape(shape)));
       state.images.forEach((imageItem) => root.appendChild(renderInsertedImage(imageItem)));
@@ -1224,6 +1236,49 @@
     });
   }
 
+  function refreshLinkLabelClearanceClip(defs, root, labelLayer) {
+    if (!defs || !root || !labelLayer) return;
+    defs.querySelector(`#${LINK_LABEL_CLEARANCE_CLIP_ID}`)?.remove();
+    const visiblePaths = [...root.querySelectorAll("[data-link-visual='true']")];
+    visiblePaths.forEach((path) => path.removeAttribute("clip-path"));
+    const labelRects = [...labelLayer.querySelectorAll("[data-type='link-label'] > rect")];
+    if (!visiblePaths.length || !labelRects.length) return;
+
+    const bounds = contentBounds(5200);
+    const maxRenderedLineWidth = state.links.reduce(
+      (maximum, link) => Math.max(maximum, Number(link.width) || 1.5),
+      1.5
+    ) + 1.5;
+    const outerPath = rectanglePath(bounds.x, bounds.y, bounds.w, bounds.h);
+    const holes = labelRects.map((rect) => {
+      const borderWidth = Number(rect.getAttribute("stroke-width")) || 0;
+      const padding = Math.max(3, maxRenderedLineWidth / 2 + borderWidth / 2 + 2);
+      const x = Number(rect.getAttribute("x")) - padding;
+      const y = Number(rect.getAttribute("y")) - padding;
+      const width = Number(rect.getAttribute("width")) + padding * 2;
+      const height = Number(rect.getAttribute("height")) + padding * 2;
+      return rectanglePath(x, y, width, height);
+    });
+    const clipPath = createSvg("clipPath", {
+      id: LINK_LABEL_CLEARANCE_CLIP_ID,
+      clipPathUnits: "userSpaceOnUse"
+    });
+    clipPath.appendChild(createSvg("path", {
+      d: [outerPath, ...holes].join(" "),
+      "clip-rule": "evenodd",
+      "fill-rule": "evenodd"
+    }));
+    defs.appendChild(clipPath);
+    const clipUrl = `url(#${LINK_LABEL_CLEARANCE_CLIP_ID})`;
+    visiblePaths.forEach((path) => path.setAttribute("clip-path", clipUrl));
+  }
+
+  function rectanglePath(x, y, width, height) {
+    const right = x + Math.max(0, width);
+    const bottom = y + Math.max(0, height);
+    return `M ${x} ${y} H ${right} V ${bottom} H ${x} Z`;
+  }
+
   function refreshImmediateLinkSelection() {
     if (!diagramRoot?.isConnected) return false;
     const currentId = selected?.type === "link" ? selected.id : "";
@@ -1247,6 +1302,12 @@
       rendered.replaceWith(replacement);
       changed = true;
     });
+
+    if (changed) {
+      const defs = svg.querySelector("defs");
+      const labelLayer = [...diagramRoot.children].find((child) => child.getAttribute?.("data-layer") === "link-labels");
+      refreshLinkLabelClearanceClip(defs, diagramRoot, labelLayer);
+    }
 
     const anchorLayer = [...diagramRoot.children].find((child) => child.getAttribute?.("data-layer") === "link-anchors");
     if (changed || (!currentId && anchorLayer) || (currentId && !anchorLayer)) {
@@ -2973,6 +3034,7 @@
 
   function appendLinkPath(g, link, pathData, active, markers) {
     const visible = createSvg("path", {
+      "data-link-visual": "true",
       d: pathData,
       fill: "none",
       stroke: link.color || "#202329",
@@ -3698,6 +3760,16 @@
       openInspector: multiSelectedCount() >= 2,
       deferDiagram: true
     });
+  }
+
+  function toggleMultiSelectedItemFromPointer(type, id) {
+    if (selected
+      && (selected.type !== type || selected.id !== id)
+      && isMultiSelectableType(selected.type)
+      && getSelectableItem(selected.type, selected.id)) {
+      setMultiSelectedItem(selected.type, selected.id, true);
+    }
+    toggleMultiSelectedItem(type, id);
   }
 
   function isMultiSelectableType(type) {
@@ -6024,7 +6096,7 @@
         return;
       }
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
-        toggleMultiSelectedItem("node", node.id);
+        toggleMultiSelectedItemFromPointer("node", node.id);
         return;
       }
       if (isMultiSelectedItem("node", node.id) && multiSelectedCount() > 1) {
@@ -6062,7 +6134,7 @@
         : null;
       const interactionGroup = selectedGroupUnderPoint || group;
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
-        toggleMultiSelectedItem("group", interactionGroup.id);
+        toggleMultiSelectedItemFromPointer("group", interactionGroup.id);
         return;
       }
       if (isMultiSelectedItem("group", interactionGroup.id) && multiSelectedCount() > 1) {
@@ -6095,7 +6167,7 @@
       const textItem = getTextItem(target.id);
       if (!textItem) return;
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
-        toggleMultiSelectedItem("text", textItem.id);
+        toggleMultiSelectedItemFromPointer("text", textItem.id);
         return;
       }
       if (isMultiSelectedItem("text", textItem.id) && multiSelectedCount() > 1) {
@@ -6124,7 +6196,7 @@
       const shape = getShape(target.id);
       if (!shape) return;
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
-        toggleMultiSelectedItem("shape", shape.id);
+        toggleMultiSelectedItemFromPointer("shape", shape.id);
         return;
       }
       if (isMultiSelectedItem("shape", shape.id) && multiSelectedCount() > 1) {
@@ -6153,7 +6225,7 @@
       const imageItem = getImageItem(target.id);
       if (!imageItem) return;
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
-        toggleMultiSelectedItem("image", imageItem.id);
+        toggleMultiSelectedItemFromPointer("image", imageItem.id);
         return;
       }
       if (isMultiSelectedItem("image", imageItem.id) && multiSelectedCount() > 1) {
@@ -6182,7 +6254,7 @@
       const legend = getLegend(target.id);
       if (!legend) return;
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
-        toggleMultiSelectedItem("legend", legend.id);
+        toggleMultiSelectedItemFromPointer("legend", legend.id);
         return;
       }
       if (isMultiSelectedItem("legend", legend.id) && multiSelectedCount() > 1) {
@@ -8144,6 +8216,7 @@
       state.groups.forEach((group) => root.appendChild(renderGroup(group)));
       state.links.forEach((link) => appendLinkWithLiftedLabel(root, linkLabelLayer, link));
       root.appendChild(linkLabelLayer);
+      refreshLinkLabelClearanceClip(defs, root, linkLabelLayer);
       state.nodes.forEach((node) => root.appendChild(renderNode(node)));
       state.shapes.forEach((shape) => root.appendChild(renderShape(shape)));
       state.images.forEach((imageItem) => root.appendChild(renderInsertedImage(imageItem)));
@@ -9603,49 +9676,7 @@
       const anchorIndex = wrapIndex(preferred + anchorSpreadOffset(spreadIndex), anchors.length);
       point = anchors[anchorIndex].point;
     }
-    return avoidGroupTitleTabAttachment(item, point, link);
-  }
-
-  function avoidGroupTitleTabAttachment(item, point, link) {
-    const group = item && Object.prototype.hasOwnProperty.call(item, "title") ? item : null;
-    if (!group || !point) return point;
-    const tab = groupTitleTabMetrics(group, normalizeGroupTitleFontSize(group.titleFontSize));
-    const clearance = Math.max(10, (Number(link?.width) || 1.5) * 6 + 4);
-    const insideTabClearance = point.x >= tab.x - clearance
-      && point.x <= tab.x + tab.w + clearance
-      && point.y >= tab.y - clearance
-      && point.y <= tab.y + tab.h + clearance;
-    if (!insideTabClearance) return point;
-
-    const shape = normalizeGroupShape(group.shape);
-    const notchW = normalizeGroupNotchWidth(group);
-    const notchH = normalizeGroupNotchHeight(group);
-    const left = group.x;
-    const right = group.x + group.w;
-    const bottom = group.y + group.h;
-    let topStart = left;
-    let topEnd = right;
-    if (shape === "l-top-left") topStart += notchW;
-    if (shape === "l-top-right") topEnd -= notchW;
-
-    const candidates = [];
-    const leftTopEnd = Math.min(topEnd, tab.x - clearance);
-    if (leftTopEnd >= topStart) {
-      candidates.push({ x: clamp(point.x, topStart, leftTopEnd), y: group.y });
-    }
-    const rightTopStart = Math.max(topStart, tab.x + tab.w + clearance);
-    if (rightTopStart <= topEnd) {
-      candidates.push({ x: clamp(point.x, rightTopStart, topEnd), y: group.y });
-    }
-
-    const tabSafeY = Math.min(bottom, Math.max(group.y, tab.y + tab.h + clearance));
-    const leftEdgeStart = shape === "l-top-left" ? group.y + notchH : group.y;
-    const rightEdgeStart = shape === "l-top-right" ? group.y + notchH : group.y;
-    candidates.push({ x: left, y: clamp(tabSafeY, leftEdgeStart, bottom) });
-    candidates.push({ x: right, y: clamp(tabSafeY, rightEdgeStart, bottom) });
-    return candidates.reduce((nearest, candidate) => (
-      !nearest || distance(candidate, point) < distance(nearest, point) ? candidate : nearest
-    ), null) || point;
+    return point;
   }
 
   function attachmentAnchors(item) {
