@@ -252,6 +252,7 @@
   let linkJumpPolylineCache = new Map();
   let linkJumpReferenceSegmentCache = new Map();
   let cropSession = null;
+  let inlineEditorSession = null;
   let projectStoreAvailable = null;
   let projectDialogMode = "load";
   let currentProjectId = "";
@@ -648,7 +649,11 @@
     window.addEventListener("pointerup", onGlobalPointerRelease);
     window.addEventListener("pointercancel", onGlobalPointerRelease);
     window.addEventListener("blur", resetWorkspaceGesture);
+    window.addEventListener("resize", positionInlineTextEditor);
+    window.visualViewport?.addEventListener("resize", positionInlineTextEditor);
+    window.visualViewport?.addEventListener("scroll", positionInlineTextEditor);
     window.addEventListener("beforeunload", () => {
+      finishInlineTextEdit(true, { render: false });
       saveToStorage(true);
       stopAutoSave();
       revokeImageObjectUrls();
@@ -925,7 +930,12 @@
       setHoveredConnectionTarget(null);
       return;
     }
-    if (target?.type === "node" || target?.type === "group" || target?.type === "group-title" || target?.type === "connection-port") {
+    if (target?.type === "node"
+      || target?.type === "node-name"
+      || target?.type === "node-role"
+      || target?.type === "group"
+      || target?.type === "group-title"
+      || target?.type === "connection-port") {
       setHoveredConnectionTarget(target);
       return;
     }
@@ -1502,7 +1512,10 @@
         "pointer-events": "all",
         "data-type": "group-title",
         "data-id": group.id,
-        class: "node-handle"
+        "data-inline-owner": "group",
+        "data-inline-field": "title",
+        "aria-label": "グループ名を直接編集",
+        class: "node-handle inline-text-hit"
       }));
     });
     root.appendChild(layer);
@@ -1822,6 +1835,35 @@
       }, line));
     });
     g.appendChild(nameText);
+
+    g.appendChild(createSvg("rect", {
+      x: node.x,
+      y: node.y,
+      width: node.w,
+      height: roleBandHeight,
+      fill: "transparent",
+      "pointer-events": "all",
+      "data-type": "node-role",
+      "data-id": node.id,
+      "data-inline-owner": "node",
+      "data-inline-field": "role",
+      "aria-label": "肩書きを直接編集",
+      class: "inline-text-hit"
+    }));
+    g.appendChild(createSvg("rect", {
+      x: node.x,
+      y: nameBandTop,
+      width: node.w,
+      height: nameBandHeight,
+      fill: "transparent",
+      "pointer-events": "all",
+      "data-type": "node-name",
+      "data-id": node.id,
+      "data-inline-owner": "node",
+      "data-inline-field": "name",
+      "aria-label": "人名を直接編集",
+      class: "inline-text-hit"
+    }));
 
     if (active) {
       g.appendChild(createSvg("circle", {
@@ -2768,7 +2810,10 @@
       const labelGroup = createSvg("g", {
         "data-type": "link-label",
         "data-id": link.id,
-        class: "link-label"
+        "data-inline-owner": "link",
+        "data-inline-field": "label",
+        "aria-label": "関係名を直接編集",
+        class: "link-label inline-text-hit"
       });
       labelGroup.appendChild(createSvg("rect", {
         x: labelPoint.x - metrics.width / 2,
@@ -5440,11 +5485,13 @@
   }
 
   function onPointerDown(event) {
+    let target = findDiagramTarget(event.target);
+    finishInlineTextEdit(true);
     svg.focus();
     closeMobileToolPanel();
-    const target = findDiagramTarget(event.target);
     const point = clientToWorld(event);
     const screen = clientToScreen(event);
+    target = preferInlineTextTargetForRepeatedTap(target, event, screen);
     event.preventDefault();
     workspacePointers.set(event.pointerId, screen);
     svg.setPointerCapture(event.pointerId);
@@ -5486,6 +5533,7 @@
       if (event.button !== 0) return;
       const endpoint = getConnectionEndpoint(target.id);
       if (!endpoint || !target.anchor) return;
+      const inlineTapTarget = inlineTextTargetAtPoint(event.clientX, event.clientY, target.id);
       const ratio = anchorRatioFromValue(target.anchor);
       const anchorPoint = {
         x: endpoint.item.x + endpoint.item.w * ratio.x,
@@ -5496,6 +5544,7 @@
         direct: true,
         fromAnchor: target.anchor
       });
+      if (drag?.type === "connect") drag.inlineTapTarget = inlineTapTarget;
       return;
     }
 
@@ -5546,7 +5595,7 @@
       return;
     }
 
-    if (target?.type === "node") {
+    if (target?.type === "node" || target?.type === "node-name" || target?.type === "node-role") {
       const node = getNode(target.id);
       if (!node) return;
       if (mode === "connect") {
@@ -5571,6 +5620,7 @@
         start: point,
         startScreen: screen,
         original: { x: node.x, y: node.y },
+        inlineField: target.type === "node-name" ? "name" : target.type === "node-role" ? "role" : "",
         moved: false
       };
       renderEditSelection({ deferDiagram: true });
@@ -5613,6 +5663,7 @@
           containedItems: groupMoveContentsEnabled() ? collectGroupDragItems(interactionGroup) : null
         },
         previousSelection: directTitleSelection || selectedGroupUnderPoint ? null : previousSelection,
+        inlineField: directTitleSelection ? "title" : "",
         moved: false
       };
       renderEditSelection({ deferDiagram: true });
@@ -5768,6 +5819,7 @@
           labelOffsetX: normalizedLinkLabelOffsetX(link),
           labelOffsetY: normalizedLinkLabelOffsetY(link)
         },
+        inlineField: "label",
         moved: false
       };
       renderEditSelection({ deferDiagram: true });
@@ -5956,6 +6008,7 @@
     const currentDrag = drag;
     if (currentDrag.type === "connect") {
       drag = null;
+      if (finishConnectionPortInlineTap(event, currentDrag)) return;
       if (!finishConnectionGesture(event, currentDrag)) render();
       return;
     }
@@ -5971,7 +6024,14 @@
       return;
     }
     if ((currentDrag.type === "node" || currentDrag.type === "multi" || currentDrag.type === "group" || currentDrag.type === "group-resize" || currentDrag.type === "group-notch" || currentDrag.type === "text" || currentDrag.type === "shape" || currentDrag.type === "image" || currentDrag.type === "legend" || currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor") && !currentDrag.moved) {
-      handleTapSelection(currentDrag.type === "multi" ? currentDrag.itemType : currentDrag.type === "group-resize" || currentDrag.type === "group-notch" ? "group" : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor" ? "link" : currentDrag.type, currentDrag.id, event, currentDrag.previousSelection);
+      const tapType = currentDrag.type === "multi"
+        ? currentDrag.itemType
+        : currentDrag.type === "group-resize" || currentDrag.type === "group-notch"
+          ? "group"
+          : currentDrag.type === "link-label" || currentDrag.type === "link-route" || currentDrag.type === "link-terminal" || currentDrag.type === "link-anchor"
+            ? "link"
+            : currentDrag.type;
+      handleTapSelection(tapType, currentDrag.id, event, currentDrag.previousSelection, currentDrag.inlineField || "");
       drag = null;
       renderEditSelection({
         openInspector: inspectorOpen,
@@ -5996,6 +6056,7 @@
       const currentDrag = drag;
       drag = null;
       if (currentDrag.type === "connect") {
+        if (finishConnectionPortInlineTap(event, currentDrag)) return;
         if (!finishConnectionGesture(event, currentDrag)) render();
         return;
       }
@@ -6154,25 +6215,258 @@
     requestViewportRender();
   }
 
-  function handleTapSelection(type, id, event, previousSelection = null) {
+  function handleTapSelection(type, id, event, previousSelection = null, inlineField = "") {
     const screen = clientToScreen(event);
     const now = Date.now();
     const isDoubleTap = lastTap
       && lastTap.type === type
       && lastTap.id === id
+      && (lastTap.inlineField || "") === inlineField
       && now - lastTap.time < DOUBLE_TAP_TIMEOUT_MS
       && distance(screen, lastTap.screen) < DOUBLE_TAP_DISTANCE_PX;
+    if (isDoubleTap && inlineField && openInlineTextEditor(type, id, inlineField)) {
+      inspectorOpen = false;
+      lastTap = null;
+      return;
+    }
     if (type === "group" && !isDoubleTap) {
       const cycledSelection = groupSelectionAtPoint(clientToWorld(event), previousSelection);
       if (cycledSelection) {
         selected = cycledSelection;
         inspectorOpen = false;
-        lastTap = { type: cycledSelection.type, id: cycledSelection.id, time: now, screen };
+        lastTap = { type: cycledSelection.type, id: cycledSelection.id, inlineField, time: now, screen };
         return;
       }
     }
     inspectorOpen = Boolean(isDoubleTap);
-    lastTap = isDoubleTap ? null : { type, id, time: now, screen };
+    lastTap = isDoubleTap ? null : { type, id, inlineField, time: now, screen };
+  }
+
+  function preferInlineTextTargetForRepeatedTap(target, event, screen) {
+    if (target?.type !== "connection-port" || !lastTap?.inlineField) return target;
+    if (lastTap.id !== target.id
+      || Date.now() - lastTap.time >= DOUBLE_TAP_TIMEOUT_MS
+      || distance(screen, lastTap.screen) >= DOUBLE_TAP_DISTANCE_PX) {
+      return target;
+    }
+
+    const inlineTarget = inlineTextTargetAtPoint(event.clientX, event.clientY, target.id);
+    if (inlineTarget
+      && lastTap.type === inlineTarget.owner
+      && lastTap.inlineField === inlineTarget.field) {
+      return {
+        type: inlineTarget.type,
+        id: inlineTarget.id,
+        side: "",
+        endpointId: "",
+        axis: "",
+        anchor: ""
+      };
+    }
+    return target;
+  }
+
+  function inlineTextTargetAtPoint(clientX, clientY, ownerId = "") {
+    for (const element of document.elementsFromPoint(clientX, clientY)) {
+      let current = element;
+      while (current && current !== svg) {
+        const owner = current.getAttribute?.("data-inline-owner") || "";
+        const field = current.getAttribute?.("data-inline-field") || "";
+        const id = current.getAttribute?.("data-id") || "";
+        if (owner && field && (!ownerId || id === ownerId)) {
+          const type = owner === "node"
+            ? field === "name" ? "node-name" : field === "role" ? "node-role" : ""
+            : owner === "group" && field === "title"
+              ? "group-title"
+              : "";
+          if (type) return { type, owner, field, id };
+        }
+        current = current.parentNode;
+      }
+    }
+    return null;
+  }
+
+  function finishConnectionPortInlineTap(event, connectionDrag) {
+    const inlineTarget = connectionDrag.inlineTapTarget;
+    if (connectionDrag.moved || !inlineTarget) return false;
+    pendingConnection = null;
+    selected = { type: inlineTarget.owner, id: inlineTarget.id };
+    inspectorOpen = false;
+    handleTapSelection(inlineTarget.owner, inlineTarget.id, event, null, inlineTarget.field);
+    renderEditSelection({
+      openInspector: inspectorOpen,
+      deferDiagram: !inspectorOpen
+    });
+    return true;
+  }
+
+  function inlineTextEditDescriptor(type, id, field) {
+    if (type === "node") {
+      const node = getNode(id);
+      if (!node) return null;
+      if (field === "name") {
+        return {
+          label: "人名",
+          value: String(node.name || ""),
+          multiline: false,
+          set: (value) => {
+            node.name = value;
+          }
+        };
+      }
+      if (field === "role") {
+        return {
+          label: "肩書き",
+          value: String(node.role || ""),
+          multiline: true,
+          set: (value) => {
+            node.role = value;
+          }
+        };
+      }
+    }
+    if (type === "group" && field === "title") {
+      const group = getGroup(id);
+      if (!group) return null;
+      return {
+        label: "グループ名",
+        value: String(group.title || ""),
+        multiline: false,
+        set: (value) => {
+          group.title = value;
+        }
+      };
+    }
+    if (type === "link" && field === "label") {
+      const link = getLink(id);
+      if (!link) return null;
+      return {
+        label: "関係名",
+        value: String(link.label || ""),
+        multiline: true,
+        set: (value) => {
+          link.label = value;
+        }
+      };
+    }
+    return null;
+  }
+
+  function inlineTextEditTarget(type, id, field) {
+    if (!diagramRoot?.isConnected) return null;
+    return [...diagramRoot.querySelectorAll("[data-inline-owner][data-inline-field]")]
+      .find((element) => element.getAttribute("data-inline-owner") === type
+        && element.getAttribute("data-id") === id
+        && element.getAttribute("data-inline-field") === field) || null;
+  }
+
+  function openInlineTextEditor(type, id, field) {
+    if (isViewMode()) return false;
+    finishInlineTextEdit(true);
+    const descriptor = inlineTextEditDescriptor(type, id, field);
+    const targetElement = inlineTextEditTarget(type, id, field);
+    if (!descriptor || !targetElement) return false;
+
+    const input = document.createElement(descriptor.multiline ? "textarea" : "input");
+    if (!descriptor.multiline) input.type = "text";
+    input.className = "inline-diagram-editor";
+    input.value = descriptor.value;
+    input.setAttribute("aria-label", `${descriptor.label}を直接編集`);
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("autocapitalize", "sentences");
+    input.setAttribute("data-multiline", descriptor.multiline ? "true" : "false");
+    input.enterKeyHint = descriptor.multiline ? "enter" : "done";
+    input.spellcheck = true;
+    if (descriptor.multiline) input.rows = 3;
+
+    inlineEditorSession = {
+      type,
+      id,
+      field,
+      originalValue: descriptor.value,
+      multiline: descriptor.multiline,
+      input,
+      targetElement
+    };
+    document.body.appendChild(input);
+    document.body.classList.add("is-inline-editing");
+    positionInlineTextEditor();
+
+    input.addEventListener("pointerdown", (event) => event.stopPropagation());
+    input.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      if (event.isComposing) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finishInlineTextEdit(false);
+        svg.focus({ preventScroll: true });
+        return;
+      }
+      if (event.key === "Enter" && (!descriptor.multiline || event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        input.blur();
+      }
+    });
+    input.addEventListener("blur", () => finishInlineTextEdit(true), { once: true });
+
+    try {
+      input.focus({ preventScroll: true });
+    } catch {
+      input.focus();
+    }
+    input.select();
+    return true;
+  }
+
+  function positionInlineTextEditor() {
+    const session = inlineEditorSession;
+    if (!session?.input?.isConnected) return;
+    if (!session.targetElement?.isConnected) {
+      session.targetElement = inlineTextEditTarget(session.type, session.id, session.field);
+    }
+    if (!session.targetElement) return;
+
+    const targetRect = session.targetElement.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportWidth = viewport?.width || window.innerWidth;
+    const viewportHeight = viewport?.height || window.innerHeight;
+    const margin = 8;
+    const maxWidth = Math.max(140, viewportWidth - margin * 2);
+    const preferredWidth = Math.max(targetRect.width + 16, session.multiline ? 220 : 180);
+    const width = clamp(preferredWidth, 140, maxWidth);
+    const height = session.multiline
+      ? clamp(Math.max(targetRect.height + 32, 82), 82, 160)
+      : 44;
+    const preferredLeft = targetRect.left + (targetRect.width - width) / 2;
+    const preferredTop = targetRect.top + (targetRect.height - height) / 2;
+    const left = clamp(preferredLeft, viewportLeft + margin, viewportLeft + viewportWidth - width - margin);
+    const top = clamp(preferredTop, viewportTop + margin, viewportTop + viewportHeight - height - margin);
+
+    Object.assign(session.input.style, {
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${width}px`,
+      height: `${height}px`
+    });
+  }
+
+  function finishInlineTextEdit(commit, options = {}) {
+    const session = inlineEditorSession;
+    if (!session) return false;
+    inlineEditorSession = null;
+    const value = session.input.value.replace(/\r\n/g, "\n");
+    session.input.remove();
+    document.body.classList.remove("is-inline-editing");
+    if (!commit || value === session.originalValue) return false;
+
+    const descriptor = inlineTextEditDescriptor(session.type, session.id, session.field);
+    if (!descriptor) return false;
+    descriptor.set(value);
+    commitChange(options.render !== false);
+    return true;
   }
 
   function selectionFromDiagramTarget(target, point = null, previousSelection = null) {
@@ -6183,7 +6477,9 @@
     if (target.type === "link-label" || target.type === "link-route" || target.type === "link-terminal" || target.type === "link-anchor" || target.type === "link") {
       return getLink(target.id) ? { type: "link", id: target.id } : null;
     }
-    if (target.type === "node") return getNode(target.id) ? { type: "node", id: target.id } : null;
+    if (target.type === "node" || target.type === "node-name" || target.type === "node-role") {
+      return getNode(target.id) ? { type: "node", id: target.id } : null;
+    }
     if (target.type === "group-title") return getGroup(target.id) ? { type: "group", id: target.id } : null;
     if (target.type === "group") return groupSelectionAtPoint(point, previousSelection) || (getGroup(target.id) ? { type: "group", id: target.id } : null);
     if (target.type === "text") return getTextItem(target.id) ? { type: "text", id: target.id } : null;
@@ -8664,6 +8960,8 @@
 
   function isConnectableTarget(target) {
     return (target?.type === "node"
+      || target?.type === "node-name"
+      || target?.type === "node-role"
       || target?.type === "group"
       || target?.type === "group-title"
       || target?.type === "connection-port")
