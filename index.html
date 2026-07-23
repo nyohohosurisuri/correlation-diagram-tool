@@ -109,6 +109,20 @@
     <button id="toggleToolsBtn" class="tools-toggle" type="button" aria-label="左パネルを閉じる" aria-pressed="false">‹</button>
   </div>
 
+  <div id="canvasContextMenu" class="canvas-context-menu" role="menu" aria-label="作成メニュー" aria-hidden="true">
+    <div class="canvas-context-menu__title">作成</div>
+    <div class="canvas-context-menu__grid">
+      <button type="button" role="menuitem" data-context-create="node">＋ 人物</button>
+      <button type="button" role="menuitem" data-context-create="link">↔ 関係</button>
+      <button type="button" role="menuitem" data-context-create="group">□ グループ</button>
+      <button type="button" role="menuitem" data-context-create="text">T テキスト</button>
+      <button type="button" role="menuitem" data-context-create="shape">☆ 図形</button>
+      <button type="button" role="menuitem" data-context-create="legend">◎ 凡例</button>
+      <button type="button" role="menuitem" data-context-create="arrow-legend">⇢ 矢印凡例</button>
+      <button type="button" role="menuitem" data-context-create="image">▧ 画像</button>
+    </div>
+  </div>
+
   <div id="cropEditor" class="crop-editor" aria-hidden="true">
     <div class="crop-editor__bar">
       <button id="cropCancelBtn" type="button">キャンセル</button>

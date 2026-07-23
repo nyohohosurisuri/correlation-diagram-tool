@@ -205,6 +205,7 @@
   const viewModeBtn = document.querySelector("#viewModeBtn");
   const detailSettingsBtn = document.querySelector("#detailSettingsBtn");
   const zoomLabel = document.querySelector("#zoomLabel");
+  const canvasContextMenu = document.querySelector("#canvasContextMenu");
   ensureCropEditorMarkup();
   const cropEditor = document.querySelector("#cropEditor");
   const cropStage = document.querySelector("#cropStage");
@@ -254,6 +255,9 @@
   let linkJumpReferenceSegmentCache = new Map();
   let cropSession = null;
   let inlineEditorSession = null;
+  let canvasContextPoint = null;
+  let canvasContextTarget = null;
+  let pendingImageInsertPoint = null;
   let projectStoreAvailable = null;
   let projectDialogMode = "load";
   let currentProjectId = "";
@@ -425,33 +429,7 @@
       button.addEventListener("click", () => toggleMobileToolPanel(button.dataset.mobileTool || "none"));
     });
 
-    document.querySelector("#addNodeBtn").addEventListener("click", () => {
-      if (isViewMode()) return;
-      const center = screenCenterWorld();
-      const node = {
-        id: uid("node"),
-        name: `人物${state.nodes.length + 1}`,
-        role: "",
-        description: "",
-        x: center.x - NODE_DEFAULT_WIDTH / 2,
-        y: center.y - NODE_DEFAULT_HEIGHT / 2,
-        w: NODE_DEFAULT_WIDTH,
-        h: NODE_DEFAULT_HEIGHT,
-        color: PALETTE[state.nodes.length % PALETTE.length],
-        gradient: defaultGradient(PALETTE[state.nodes.length % PALETTE.length]),
-        marks: [],
-        image: "",
-        imageBackgroundColor: "#ffffff",
-        imageScale: 1,
-        imageOffsetX: 0,
-        imageOffsetY: 0
-      };
-      state.nodes.push(node);
-      selected = { type: "node", id: node.id };
-      inspectorOpen = true;
-      commitChange();
-      render();
-    });
+    document.querySelector("#addNodeBtn").addEventListener("click", () => createNodeAt());
 
     connectBtn.addEventListener("click", () => {
       if (isViewMode()) return;
@@ -461,117 +439,12 @@
       render();
     });
 
-    document.querySelector("#addGroupBtn").addEventListener("click", () => {
-      if (isViewMode()) return;
-      const center = screenCenterWorld();
-      const group = {
-        id: uid("group"),
-        title: `グループ${state.groups.length + 1}`,
-        x: center.x - 150,
-        y: center.y - 100,
-        w: 300,
-        h: 200,
-        color: PALETTE[(state.groups.length + 2) % PALETTE.length],
-        fillOpacity: 0.13,
-        gradient: defaultGradient(PALETTE[(state.groups.length + 2) % PALETTE.length]),
-        titleFontSize: GROUP_TITLE_DEFAULT_FONT_SIZE,
-        titleFontFamily: "mincho",
-        titleTextColor: "#202329",
-        titleBackgroundOpacity: 1,
-        titleOutlineColor: "#ffffff",
-        titleOutlineWidth: 0,
-        shape: "rect",
-        notchWidth: 120,
-        notchHeight: 80
-      };
-      state.groups.push(group);
-      selected = { type: "group", id: group.id };
-      inspectorOpen = true;
-      commitChange();
-      render();
-    });
-
-    document.querySelector("#addTextBtn").addEventListener("click", () => {
-      if (isViewMode()) return;
-      const center = screenCenterWorld();
-      const textItem = {
-        id: uid("text"),
-        content: "テキスト",
-        x: center.x - TEXT_DEFAULT_WIDTH / 2,
-        y: center.y,
-        w: TEXT_DEFAULT_WIDTH,
-        fontSize: 20,
-        color: "#202329",
-        align: "left",
-        backgroundColor: "",
-        borderColor: "",
-        borderWidth: 1
-      };
-      state.texts.push(textItem);
-      selected = { type: "text", id: textItem.id };
-      inspectorOpen = true;
-      mode = "select";
-      pendingConnection = null;
-      commitChange();
-      render();
-    });
-
-    document.querySelector("#addShapeBtn").addEventListener("click", () => {
-      if (isViewMode()) return;
-      const center = screenCenterWorld();
-      const shape = {
-        id: uid("shape"),
-        type: "rect",
-        x: center.x - SHAPE_DEFAULT_WIDTH / 2,
-        y: center.y - SHAPE_DEFAULT_HEIGHT / 2,
-        w: SHAPE_DEFAULT_WIDTH,
-        h: SHAPE_DEFAULT_HEIGHT,
-        rotation: 0,
-        fill: "#ffffff",
-        stroke: "#202329",
-        strokeWidth: 2,
-        opacity: 1
-      };
-      state.shapes.push(shape);
-      selected = { type: "shape", id: shape.id };
-      inspectorOpen = true;
-      mode = "select";
-      pendingConnection = null;
-      commitChange();
-      render();
-    });
-
-    document.querySelector("#addLegendBtn").addEventListener("click", () => {
-      if (isViewMode()) return;
-      const center = screenCenterWorld();
-      const legend = createDefaultLegend(center);
-      state.legends.push(legend);
-      selected = { type: "legend", id: legend.id };
-      inspectorOpen = true;
-      mode = "select";
-      pendingConnection = null;
-      commitChange();
-      render();
-    });
-
-    document.querySelector("#addArrowLegendBtn").addEventListener("click", () => {
-      if (isViewMode()) return;
-      const center = screenCenterWorld();
-      const legend = createDefaultArrowLegend(center);
-      state.legends.push(legend);
-      selected = { type: "legend", id: legend.id };
-      inspectorOpen = true;
-      mode = "select";
-      pendingConnection = null;
-      commitChange();
-      render();
-    });
-
-    document.querySelector("#addImageBtn").addEventListener("click", () => {
-      if (isViewMode()) return;
-      imageInsertInput.value = "";
-      imageInsertInput.click();
-    });
+    document.querySelector("#addGroupBtn").addEventListener("click", () => createGroupAt());
+    document.querySelector("#addTextBtn").addEventListener("click", () => createTextAt());
+    document.querySelector("#addShapeBtn").addEventListener("click", () => createShapeAt());
+    document.querySelector("#addLegendBtn").addEventListener("click", () => createLegendAt());
+    document.querySelector("#addArrowLegendBtn").addEventListener("click", () => createLegendAt(null, "arrows"));
+    document.querySelector("#addImageBtn").addEventListener("click", () => requestImageInsert());
 
     document.querySelector("#zoomOutBtn").addEventListener("click", () => zoomBy(0.85));
     document.querySelector("#zoomInBtn").addEventListener("click", () => zoomBy(1.18));
@@ -638,6 +511,7 @@
     svg.addEventListener("pointermove", onPointerMove);
     svg.addEventListener("pointerup", onPointerUp);
     svg.addEventListener("pointercancel", onPointerUp);
+    svg.addEventListener("contextmenu", onCanvasContextMenu);
     svg.addEventListener("pointerleave", () => {
       if (!drag) setHoveredConnectionTarget(null);
     });
@@ -645,11 +519,24 @@
     svg.addEventListener("auxclick", (event) => {
       if (event.button === 1) event.preventDefault();
     });
+    canvasContextMenu?.addEventListener("click", onCanvasContextMenuAction);
+    document.addEventListener("pointerdown", (event) => {
+      if (!isCanvasContextMenuOpen() || canvasContextMenu?.contains(event.target)) return;
+      closeCanvasContextMenu();
+    }, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !isCanvasContextMenuOpen()) return;
+      event.preventDefault();
+      closeCanvasContextMenu({ restoreFocus: true });
+    });
 
     document.querySelector(".inspector")?.addEventListener("pointerdown", resetWorkspaceGesture);
     window.addEventListener("pointerup", onGlobalPointerRelease);
     window.addEventListener("pointercancel", onGlobalPointerRelease);
-    window.addEventListener("blur", resetWorkspaceGesture);
+    window.addEventListener("blur", () => {
+      closeCanvasContextMenu();
+      resetWorkspaceGesture();
+    });
     window.addEventListener("resize", positionInlineTextEditor);
     window.visualViewport?.addEventListener("resize", positionInlineTextEditor);
     window.visualViewport?.addEventListener("scroll", positionInlineTextEditor);
@@ -660,7 +547,10 @@
       revokeImageObjectUrls();
     });
     document.addEventListener("visibilitychange", () => {
-      if (document.hidden) resetWorkspaceGesture();
+      if (document.hidden) {
+        closeCanvasContextMenu();
+        resetWorkspaceGesture();
+      }
     });
 
     svg.addEventListener("keydown", (event) => {
@@ -669,6 +559,10 @@
         deleteSelected();
       }
       if (event.key === "Escape") {
+        if (isCanvasContextMenuOpen()) {
+          closeCanvasContextMenu({ restoreFocus: true });
+          return;
+        }
         if (cropSession) {
           closeCropEditor();
           return;
@@ -694,9 +588,229 @@
     });
 
     window.addEventListener("resize", () => {
+      closeCanvasContextMenu();
       render();
       renderCropEditor();
     });
+  }
+
+  function creationPoint(point) {
+    if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
+      return { x: point.x, y: point.y };
+    }
+    return screenCenterWorld();
+  }
+
+  function finishCreatedItem(type, id) {
+    selected = { type, id };
+    clearMultiSelection();
+    inspectorOpen = true;
+    mode = "select";
+    pendingConnection = null;
+    commitChange();
+    render();
+  }
+
+  function createNodeAt(point = null) {
+    if (isViewMode()) return;
+    const center = creationPoint(point);
+    const color = PALETTE[state.nodes.length % PALETTE.length];
+    const node = {
+      id: uid("node"),
+      name: `人物${state.nodes.length + 1}`,
+      role: "",
+      description: "",
+      x: center.x - NODE_DEFAULT_WIDTH / 2,
+      y: center.y - NODE_DEFAULT_HEIGHT / 2,
+      w: NODE_DEFAULT_WIDTH,
+      h: NODE_DEFAULT_HEIGHT,
+      color,
+      gradient: defaultGradient(color),
+      marks: [],
+      image: "",
+      imageBackgroundColor: "#ffffff",
+      imageScale: 1,
+      imageOffsetX: 0,
+      imageOffsetY: 0
+    };
+    state.nodes.push(node);
+    finishCreatedItem("node", node.id);
+  }
+
+  function createGroupAt(point = null) {
+    if (isViewMode()) return;
+    const center = creationPoint(point);
+    const color = PALETTE[(state.groups.length + 2) % PALETTE.length];
+    const group = {
+      id: uid("group"),
+      title: `グループ${state.groups.length + 1}`,
+      x: center.x - 150,
+      y: center.y - 100,
+      w: 300,
+      h: 200,
+      color,
+      fillOpacity: 0.13,
+      gradient: defaultGradient(color),
+      titleFontSize: GROUP_TITLE_DEFAULT_FONT_SIZE,
+      titleFontFamily: "mincho",
+      titleTextColor: "#202329",
+      titleBackgroundOpacity: 1,
+      titleOutlineColor: "#ffffff",
+      titleOutlineWidth: 0,
+      shape: "rect",
+      notchWidth: 120,
+      notchHeight: 80
+    };
+    state.groups.push(group);
+    finishCreatedItem("group", group.id);
+  }
+
+  function createTextAt(point = null) {
+    if (isViewMode()) return;
+    const center = creationPoint(point);
+    const textItem = {
+      id: uid("text"),
+      content: "テキスト",
+      x: center.x - TEXT_DEFAULT_WIDTH / 2,
+      y: center.y,
+      w: TEXT_DEFAULT_WIDTH,
+      fontSize: 20,
+      color: "#202329",
+      align: "left",
+      backgroundColor: "",
+      borderColor: "",
+      borderWidth: 1
+    };
+    state.texts.push(textItem);
+    finishCreatedItem("text", textItem.id);
+  }
+
+  function createShapeAt(point = null) {
+    if (isViewMode()) return;
+    const center = creationPoint(point);
+    const shape = {
+      id: uid("shape"),
+      type: "rect",
+      x: center.x - SHAPE_DEFAULT_WIDTH / 2,
+      y: center.y - SHAPE_DEFAULT_HEIGHT / 2,
+      w: SHAPE_DEFAULT_WIDTH,
+      h: SHAPE_DEFAULT_HEIGHT,
+      rotation: 0,
+      fill: "#ffffff",
+      stroke: "#202329",
+      strokeWidth: 2,
+      opacity: 1
+    };
+    state.shapes.push(shape);
+    finishCreatedItem("shape", shape.id);
+  }
+
+  function createLegendAt(point = null, kind = "marks") {
+    if (isViewMode()) return;
+    const center = creationPoint(point);
+    const legend = kind === "arrows"
+      ? createDefaultArrowLegend(center)
+      : createDefaultLegend(center);
+    state.legends.push(legend);
+    finishCreatedItem("legend", legend.id);
+  }
+
+  function requestImageInsert(point = null) {
+    if (isViewMode()) return;
+    pendingImageInsertPoint = point ? creationPoint(point) : null;
+    imageInsertInput.value = "";
+    imageInsertInput.click();
+  }
+
+  function isCanvasContextMenuOpen() {
+    return canvasContextMenu?.getAttribute("aria-hidden") === "false";
+  }
+
+  function onCanvasContextMenu(event) {
+    if (isViewMode() || !canvasContextMenu || cropSession || projectDialog?.getAttribute("aria-hidden") === "false") return;
+    event.preventDefault();
+    event.stopPropagation();
+    finishInlineTextEdit(true);
+    closeMobileToolPanel();
+    resetWorkspaceGesture();
+
+    const svgRect = svg.getBoundingClientRect();
+    const withinCanvas = event.clientX >= svgRect.left
+      && event.clientX <= svgRect.right
+      && event.clientY >= svgRect.top
+      && event.clientY <= svgRect.bottom;
+    const clientX = withinCanvas ? event.clientX : svgRect.left + svgRect.width / 2;
+    const clientY = withinCanvas ? event.clientY : svgRect.top + svgRect.height / 2;
+    canvasContextPoint = screenToWorld({
+      x: clientX - svgRect.left,
+      y: clientY - svgRect.top
+    });
+    canvasContextTarget = withinCanvas ? findDiagramTarget(event.target) : null;
+
+    canvasContextMenu.setAttribute("aria-hidden", "false");
+    canvasContextMenu.style.visibility = "hidden";
+    canvasContextMenu.style.left = "0px";
+    canvasContextMenu.style.top = "0px";
+    const menuRect = canvasContextMenu.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft || 0;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportWidth = viewport?.width || window.innerWidth;
+    const viewportHeight = viewport?.height || window.innerHeight;
+    const margin = 8;
+    const left = clamp(clientX, viewportLeft + margin, viewportLeft + viewportWidth - menuRect.width - margin);
+    const top = clamp(clientY, viewportTop + margin, viewportTop + viewportHeight - menuRect.height - margin);
+    canvasContextMenu.style.left = `${left}px`;
+    canvasContextMenu.style.top = `${top}px`;
+    canvasContextMenu.style.visibility = "";
+    canvasContextMenu.querySelector("button")?.focus({ preventScroll: true });
+  }
+
+  function closeCanvasContextMenu(options = {}) {
+    if (!canvasContextMenu) return;
+    canvasContextMenu.setAttribute("aria-hidden", "true");
+    canvasContextMenu.style.visibility = "";
+    canvasContextMenu.style.left = "";
+    canvasContextMenu.style.top = "";
+    canvasContextPoint = null;
+    canvasContextTarget = null;
+    if (options.restoreFocus) svg.focus({ preventScroll: true });
+  }
+
+  function onCanvasContextMenuAction(event) {
+    const button = event.target.closest("[data-context-create]");
+    if (!button || !canvasContextMenu?.contains(button)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const action = button.dataset.contextCreate || "";
+    const point = canvasContextPoint ? { ...canvasContextPoint } : screenCenterWorld();
+    const target = canvasContextTarget;
+    closeCanvasContextMenu();
+
+    if (action === "node") createNodeAt(point);
+    if (action === "group") createGroupAt(point);
+    if (action === "text") createTextAt(point);
+    if (action === "shape") createShapeAt(point);
+    if (action === "legend") createLegendAt(point);
+    if (action === "arrow-legend") createLegendAt(point, "arrows");
+    if (action === "image") requestImageInsert(point);
+    if (action === "link") startContextConnection(target);
+  }
+
+  function startContextConnection(target) {
+    if (isViewMode()) return;
+    clearMultiSelection();
+    mode = "connect";
+    pendingConnection = null;
+    inspectorOpen = false;
+    const endpoint = target?.id ? getConnectionEndpoint(target.id) : null;
+    if (endpoint) {
+      pendingConnection = target.id;
+      selected = { type: endpoint.type, id: target.id };
+    } else {
+      selected = null;
+    }
+    render();
   }
 
   function installMobileGestureGuards() {
@@ -722,6 +836,7 @@
   }
 
   function toggleViewMode() {
+    closeCanvasContextMenu();
     hoveredConnectionTarget = null;
     if (isViewMode()) {
       mode = "select";
@@ -5153,10 +5268,16 @@
   function insertUploadedImage(event) {
     if (isViewMode()) {
       event.target.value = "";
+      pendingImageInsertPoint = null;
       return;
     }
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      pendingImageInsertPoint = null;
+      return;
+    }
+    const insertPoint = pendingImageInsertPoint ? { ...pendingImageInsertPoint } : screenCenterWorld();
+    pendingImageInsertPoint = null;
     if (!file.type.startsWith("image/")) {
       window.alert("画像ファイルを選択してください。");
       imageInsertInput.value = "";
@@ -5167,14 +5288,13 @@
       const dataUrl = String(reader.result || "");
       const image = new Image();
       const addImage = (naturalWidth = 0, naturalHeight = 0) => {
-        const center = screenCenterWorld();
         const size = insertedImageSize(naturalWidth, naturalHeight);
         const item = {
           id: uid("image"),
           name: file.name || "画像",
           src: storeImageAsset(dataUrl, naturalWidth, naturalHeight),
-          x: center.x - size.w / 2,
-          y: center.y - size.h / 2,
+          x: insertPoint.x - size.w / 2,
+          y: insertPoint.y - size.h / 2,
           w: size.w,
           h: size.h,
           naturalWidth,
@@ -5507,6 +5627,7 @@
   }
 
   function onPointerDown(event) {
+    if (event.button === 2) return;
     let target = findDiagramTarget(event.target);
     finishInlineTextEdit(true);
     svg.focus();
@@ -6127,6 +6248,7 @@
 
   function onWheel(event) {
     event.preventDefault();
+    closeCanvasContextMenu();
     const before = clientToWorld(event);
     const factor = event.deltaY > 0 ? 0.9 : 1.1;
     state.viewport.scale = clamp(state.viewport.scale * factor, 0.25, 2.8);
