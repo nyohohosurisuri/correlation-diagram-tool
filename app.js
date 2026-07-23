@@ -315,6 +315,7 @@
           color: "#f2b84b",
           gradient: defaultGradient("#f2b84b"),
           roleBackgroundOpacity: 1,
+          nameBackgroundOpacity: 1,
           marks: [],
           image: "",
           imageScale: 1,
@@ -333,6 +334,7 @@
           color: "#61a875",
           gradient: defaultGradient("#61a875"),
           roleBackgroundOpacity: 1,
+          nameBackgroundOpacity: 1,
           marks: [],
           image: "",
           imageScale: 1,
@@ -351,6 +353,7 @@
           color: "#e8795f",
           gradient: defaultGradient("#e8795f"),
           roleBackgroundOpacity: 1,
+          nameBackgroundOpacity: 1,
           marks: [],
           image: "",
           imageScale: 1,
@@ -369,6 +372,7 @@
           color: "#4c8fc1",
           gradient: defaultGradient("#4c8fc1"),
           roleBackgroundOpacity: 1,
+          nameBackgroundOpacity: 1,
           marks: [],
           image: "",
           imageScale: 1,
@@ -635,6 +639,7 @@
       color,
       gradient: defaultGradient(color),
       roleBackgroundOpacity: 1,
+      nameBackgroundOpacity: 1,
       marks: [],
       image: "",
       imageBackgroundColor: "#ffffff",
@@ -1850,6 +1855,8 @@
     const imageHeight = Math.max(30, node.h - roleBandHeight - nameBandHeight);
     const imageBox = { x: node.x, y: imageY, w: node.w, h: imageHeight };
     const imageDraw = computeImageDraw(node, imageBox);
+    const roleBackgroundOpacity = normalizeNodeRoleBackgroundOpacity(node.roleBackgroundOpacity);
+    const nameBackgroundOpacity = normalizeNodeNameBackgroundOpacity(node.nameBackgroundOpacity);
     const corner = 8;
     const g = createSvg("g", {
       "data-type": "node",
@@ -1868,19 +1875,45 @@
       style: "filter: drop-shadow(0 7px 12px rgba(31, 38, 43, 0.12))"
     }));
 
-    g.appendChild(createSvg("path", {
-      d: roundedTopPath(node.x, node.y, node.w, roleBandHeight, corner),
-      fill: objectGradientFill(node, "node"),
-      "fill-opacity": normalizeNodeRoleBackgroundOpacity(node.roleBackgroundOpacity)
-    }));
-
-    g.appendChild(createSvg("path", {
-      d: roundedBottomPath(node.x, node.y + node.h - nameBandHeight, node.w, nameBandHeight, corner),
-      fill: objectGradientFill(node, "node")
-    }));
-
     const nodeImageSrc = resolveImageSource(node.image);
     if (nodeImageSrc) {
+      if (roleBackgroundOpacity < 1 || nameBackgroundOpacity < 1) {
+        const fullImageBox = {
+          x: node.x + 1,
+          y: node.y + 1,
+          w: Math.max(1, node.w - 2),
+          h: Math.max(1, node.h - 2)
+        };
+        const fullImageDraw = computeImageDraw(node, fullImageBox);
+        const fullClipId = `clip_full_${node.id}`;
+        const fullClip = createSvg("clipPath", { id: fullClipId });
+        fullClip.appendChild(createSvg("rect", {
+          x: fullImageBox.x,
+          y: fullImageBox.y,
+          width: fullImageBox.w,
+          height: fullImageBox.h,
+          rx: Math.max(0, corner - 1)
+        }));
+        g.appendChild(fullClip);
+        g.appendChild(createSvg("rect", {
+          x: fullImageBox.x,
+          y: fullImageBox.y,
+          width: fullImageBox.w,
+          height: fullImageBox.h,
+          rx: Math.max(0, corner - 1),
+          fill: node.imageBackgroundColor || "#ffffff",
+          "pointer-events": "none"
+        }));
+        appendRasterImage(g, node.image, {
+          x: fullImageDraw.x,
+          y: fullImageDraw.y,
+          width: fullImageDraw.w,
+          height: fullImageDraw.h,
+          "clip-path": `url(#${fullClipId})`,
+          preserveAspectRatio: fullImageDraw.preserveAspectRatio || "none"
+        });
+      }
+
       const clipId = `clip_${node.id}`;
       const clip = createSvg("clipPath", { id: clipId });
       clip.appendChild(createSvg("rect", {
@@ -1924,6 +1957,18 @@
         "dominant-baseline": "middle"
       }, "？"));
     }
+
+    g.appendChild(createSvg("path", {
+      d: roundedTopPath(node.x, node.y, node.w, roleBandHeight, corner),
+      fill: objectGradientFill(node, "node"),
+      "fill-opacity": roleBackgroundOpacity
+    }));
+
+    g.appendChild(createSvg("path", {
+      d: roundedBottomPath(node.x, node.y + node.h - nameBandHeight, node.w, nameBandHeight, corner),
+      fill: objectGradientFill(node, "node"),
+      "fill-opacity": nameBackgroundOpacity
+    }));
 
     renderNodeMarks(node, imageBox).forEach((mark) => g.appendChild(mark));
 
@@ -2041,6 +2086,12 @@
   }
 
   function normalizeNodeRoleBackgroundOpacity(value) {
+    if (value === undefined || value === null || value === "") return 1;
+    const opacity = Number(value);
+    return Number.isFinite(opacity) ? clamp(opacity, 0, 1) : 1;
+  }
+
+  function normalizeNodeNameBackgroundOpacity(value) {
     if (value === undefined || value === null || value === "") return 1;
     const opacity = Number(value);
     return Number.isFinite(opacity) ? clamp(opacity, 0, 1) : 1;
@@ -4132,6 +4183,17 @@
         (value) => setNodeLabelFontSize(node, "nameFontSize", value),
         0.5
       )),
+      field("人名背景透明度", rangeWithValue(
+        Math.round(normalizeNodeNameBackgroundOpacity(node.nameBackgroundOpacity) * 100),
+        0,
+        100,
+        (value) => {
+          node.nameBackgroundOpacity = clamp(value / 100, 0, 1);
+          scheduleChange();
+        },
+        1,
+        "%"
+      )),
       field("肩書きフォントサイズ", rangeWithNumberInput(
         frameMetrics.roleFontSize,
         NODE_LABEL_FONT_SIZE_MIN,
@@ -4220,18 +4282,157 @@
     const totalSelected = multiSelectedCount();
     const additionalSelection = totalSelected > nodes.length ? `（人物以外 ${totalSelected - nodes.length}件は対象外）` : "";
     form.appendChild(el("div", { class: "bulk-node-edit-summary" }, `人物 ${nodes.length}人に一括適用${additionalSelection}`));
-    form.appendChild(multiNodeSizeControls(nodes));
+    form.appendChild(collapsedFieldSection("名前・肩書の文字設定", [
+      field("人名フォントサイズ", multiNodeRangeControl(
+        nodes,
+        (node) => normalizeNodeFontSize(node.nameFontSize) ?? nodeFrameMetrics(node).nameFontSize,
+        (node, value) => {
+          node.nameFontSize = value;
+          ensureNodeLabelHeight(node);
+        },
+        NODE_LABEL_FONT_SIZE_MIN,
+        NODE_LABEL_FONT_SIZE_MAX,
+        0.5
+      )),
+      field("人名背景透明度", multiNodeRangeControl(
+        nodes,
+        (node) => normalizeNodeNameBackgroundOpacity(node.nameBackgroundOpacity) * 100,
+        (node, value) => {
+          node.nameBackgroundOpacity = value / 100;
+        },
+        0,
+        100
+      )),
+      field("肩書きフォントサイズ", multiNodeRangeControl(
+        nodes,
+        (node) => normalizeNodeFontSize(node.roleFontSize) ?? nodeFrameMetrics(node).roleFontSize,
+        (node, value) => {
+          node.roleFontSize = value;
+          ensureNodeLabelHeight(node);
+        },
+        NODE_LABEL_FONT_SIZE_MIN,
+        NODE_LABEL_FONT_SIZE_MAX,
+        0.5
+      )),
+      field("肩書き背景透明度", multiNodeRangeControl(
+        nodes,
+        (node) => normalizeNodeRoleBackgroundOpacity(node.roleBackgroundOpacity) * 100,
+        (node, value) => {
+          node.roleBackgroundOpacity = value / 100;
+        },
+        0,
+        100
+      )),
+      field("名前文字色", swatches(sharedNodeStyleColor(nodes, "nameTextColor", "#ffffff"), (value) => {
+        nodes.forEach((node) => {
+          node.nameTextColor = value;
+        });
+      }, ["#ffffff", "#202329", ...PALETTE])),
+      field("名前フチ色", swatches(sharedNodeStyleColor(nodes, "nameOutlineColor", "#202329"), (value) => {
+        nodes.forEach((node) => {
+          node.nameOutlineColor = value;
+        });
+      }, ["#202329", "#ffffff", ...PALETTE])),
+      field("名前フチ幅", multiNodeRangeControl(
+        nodes,
+        (node) => normalizeNodeOutlineWidth(node.nameOutlineWidth),
+        (node, value) => {
+          node.nameOutlineWidth = value;
+        },
+        0,
+        8
+      )),
+      field("肩書き文字色", swatches(sharedNodeStyleColor(nodes, "roleTextColor", "#ffffff"), (value) => {
+        nodes.forEach((node) => {
+          node.roleTextColor = value;
+        });
+      }, ["#ffffff", "#202329", ...PALETTE])),
+      field("肩書きフチ色", swatches(sharedNodeStyleColor(nodes, "roleOutlineColor", "#202329"), (value) => {
+        nodes.forEach((node) => {
+          node.roleOutlineColor = value;
+        });
+      }, ["#202329", "#ffffff", ...PALETTE])),
+      field("肩書きフチ幅", multiNodeRangeControl(
+        nodes,
+        (node) => normalizeNodeOutlineWidth(node.roleOutlineWidth),
+        (node, value) => {
+          node.roleOutlineWidth = value;
+        },
+        0,
+        8
+      ))
+    ]));
     form.appendChild(field("色", swatches(sharedNodeColor(nodes), (value) => {
       nodes.forEach((node) => {
         node.color = value;
       });
     })));
     form.appendChild(field("グラデーション", multiNodeGradientControls(nodes)));
+    form.appendChild(field("属性マーク", multiNodeMarkControls(nodes)));
+    form.appendChild(field("画像背景色", swatches(sharedNodeStyleColor(nodes, "imageBackgroundColor", "#ffffff"), (value) => {
+      nodes.forEach((node) => {
+        node.imageBackgroundColor = value;
+      });
+    }, ["#ffffff", "#202329", "#f9faf7", "#eef4ef", "#fff2ef", ...PALETTE])));
+    form.appendChild(multiNodeSizeControls(nodes));
     inspectorContent.appendChild(form);
   }
 
   function sharedNodeColor(nodes) {
     return sharedValue(nodes.map((node) => String(node.color || PALETTE[0]).toLowerCase()));
+  }
+
+  function sharedNodeStyleColor(nodes, property, fallback) {
+    return sharedValue(nodes.map((node) => String(node[property] || fallback).toLowerCase()));
+  }
+
+  function multiNodeRangeControl(nodes, getValue, setValue, min, max, step = 1) {
+    const values = nodes.map((node) => {
+      const value = Number(getValue(node));
+      return Number.isFinite(value) ? clamp(value, min, max) : min;
+    });
+    const shared = sharedValue(values);
+    const average = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+    const initial = shared === ""
+      ? clamp(Math.round(average / step) * step, min, max)
+      : shared;
+    return rangeWithNumberInput(initial, min, max, (value) => {
+      nodes.forEach((node) => setValue(node, value));
+      scheduleChange();
+    }, step, { mixed: shared === "" });
+  }
+
+  function multiNodeMarkControls(nodes) {
+    const wrap = el("div", { class: "mark-options" });
+    NODE_MARKS.forEach((mark) => {
+      const selectedCount = nodes.filter((node) => normalizeNodeMarks(node.marks).includes(mark.id)).length;
+      const allSelected = selectedCount === nodes.length;
+      const partlySelected = selectedCount > 0 && !allSelected;
+      const option = el("label", {
+        class: `mark-option${allSelected ? " is-active" : ""}${partlySelected ? " is-mixed" : ""}`
+      });
+      const input = el("input", { type: "checkbox", value: mark.id });
+      input.checked = allSelected;
+      input.indeterminate = partlySelected;
+      input.addEventListener("change", () => {
+        nodes.forEach((node) => {
+          const next = new Set(normalizeNodeMarks(node.marks));
+          if (input.checked) next.add(mark.id);
+          else next.delete(mark.id);
+          node.marks = NODE_MARKS.map((candidate) => candidate.id).filter((id) => next.has(id));
+        });
+        commitChange();
+        render();
+      });
+      option.appendChild(input);
+      option.appendChild(el("span", {
+        class: "mark-option-badge",
+        style: `background:${mark.color}`
+      }));
+      option.appendChild(el("span", { class: "mark-option-label" }, mark.label));
+      wrap.appendChild(option);
+    });
+    return wrap;
   }
 
   function multiNodeGradientControls(nodes) {
@@ -8439,6 +8640,7 @@
         roleOutlineWidth: normalizeNodeOutlineWidth(node.roleOutlineWidth),
         roleFontSize: normalizeNodeFontSize(node.roleFontSize),
         roleBackgroundOpacity: normalizeNodeRoleBackgroundOpacity(node.roleBackgroundOpacity),
+        nameBackgroundOpacity: normalizeNodeNameBackgroundOpacity(node.nameBackgroundOpacity),
         marks: normalizeNodeMarks(node.marks),
         image: typeof node.image === "string" ? node.image : "",
         imageBackgroundColor: normalizeColorValue(node.imageBackgroundColor, "#ffffff"),
