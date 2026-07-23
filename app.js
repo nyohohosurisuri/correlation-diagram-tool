@@ -26,6 +26,10 @@
   const PNG_IDAT_CHUNK_SIZE = 1048576;
   const NODE_DEFAULT_WIDTH = 120;
   const NODE_DEFAULT_HEIGHT = 140;
+  const NODE_NAME_FONT_SIZE_DEFAULT = 12.5;
+  const NODE_ROLE_FONT_SIZE_DEFAULT = 11;
+  const NODE_LABEL_FONT_SIZE_MIN = 8;
+  const NODE_LABEL_FONT_SIZE_MAX = 28;
   const NODE_SIZE_PRESETS = [
     { id: "small", label: "小", w: 120, h: 140 },
     { id: "medium", label: "中", w: 150, h: 160 },
@@ -2022,6 +2026,12 @@
   function normalizeNodeOutlineWidth(value) {
     if (value === undefined || value === null || value === "") return 1;
     return clamp(Number(value) || 0, 0, 8);
+  }
+
+  function normalizeNodeFontSize(value) {
+    if (value === undefined || value === null || value === "") return null;
+    const size = Number(value);
+    return Number.isFinite(size) ? clamp(size, NODE_LABEL_FONT_SIZE_MIN, NODE_LABEL_FONT_SIZE_MAX) : null;
   }
 
   function renderNodeMarkBadge(mark, x, y, size) {
@@ -4092,13 +4102,30 @@
     const form = el("div", { class: "form" });
     form.appendChild(field("名前", textInput(node.name, (value) => {
       node.name = value;
+      ensureNodeLabelHeight(node);
       scheduleChange();
     })));
     form.appendChild(field("肩書き", textarea(node.role, (value) => {
       node.role = value;
+      ensureNodeLabelHeight(node);
       scheduleChange();
     })));
-    form.appendChild(collapsedFieldSection("名前・肩書の文字色/フチ", [
+    const frameMetrics = nodeFrameMetrics(node);
+    form.appendChild(collapsedFieldSection("名前・肩書の文字設定", [
+      field("人名フォントサイズ", rangeWithNumberInput(
+        frameMetrics.nameFontSize,
+        NODE_LABEL_FONT_SIZE_MIN,
+        NODE_LABEL_FONT_SIZE_MAX,
+        (value) => setNodeLabelFontSize(node, "nameFontSize", value),
+        0.5
+      )),
+      field("肩書きフォントサイズ", rangeWithNumberInput(
+        frameMetrics.roleFontSize,
+        NODE_LABEL_FONT_SIZE_MIN,
+        NODE_LABEL_FONT_SIZE_MAX,
+        (value) => setNodeLabelFontSize(node, "roleFontSize", value),
+        0.5
+      )),
       field("名前文字色", swatches(node.nameTextColor || "#ffffff", (value) => {
         node.nameTextColor = value;
         scheduleChange();
@@ -4147,6 +4174,21 @@
     form.appendChild(el("div", { class: "divider" }));
     form.appendChild(actionRow(() => duplicateNode(node), deleteSelected));
     inspectorContent.appendChild(form);
+  }
+
+  function setNodeLabelFontSize(node, property, value) {
+    const fallback = property === "nameFontSize"
+      ? NODE_NAME_FONT_SIZE_DEFAULT
+      : NODE_ROLE_FONT_SIZE_DEFAULT;
+    node[property] = normalizeNodeFontSize(value) ?? fallback;
+    ensureNodeLabelHeight(node);
+    scheduleChange();
+  }
+
+  function ensureNodeLabelHeight(node) {
+    const metrics = nodeFrameMetrics(node);
+    const minimumHeight = Math.ceil(metrics.roleBandHeight + metrics.nameBandHeight + 30);
+    node.h = clamp(Math.max(Number(node.h) || NODE_DEFAULT_HEIGHT, minimumHeight), 110, 260);
   }
 
   function renderMultiNodeInspector(nodes) {
@@ -4974,7 +5016,7 @@
       step,
       value: options.mixed ? "" : initial,
       placeholder: options.mixed ? "混在" : "",
-      inputmode: "numeric"
+      inputmode: Number(step) % 1 === 0 ? "numeric" : "decimal"
     });
     slider.addEventListener("input", () => {
       const next = Number(slider.value);
@@ -6476,6 +6518,7 @@
           multiline: false,
           set: (value) => {
             node.name = value;
+            ensureNodeLabelHeight(node);
           }
         };
       }
@@ -6486,6 +6529,7 @@
           multiline: true,
           set: (value) => {
             node.role = value;
+            ensureNodeLabelHeight(node);
           }
         };
       }
@@ -8353,9 +8397,11 @@
         nameTextColor: normalizeColorValue(node.nameTextColor, "#ffffff"),
         nameOutlineColor: normalizeColorValue(node.nameOutlineColor, "#202329"),
         nameOutlineWidth: normalizeNodeOutlineWidth(node.nameOutlineWidth),
+        nameFontSize: normalizeNodeFontSize(node.nameFontSize),
         roleTextColor: normalizeColorValue(node.roleTextColor, "#ffffff"),
         roleOutlineColor: normalizeColorValue(node.roleOutlineColor, "#202329"),
         roleOutlineWidth: normalizeNodeOutlineWidth(node.roleOutlineWidth),
+        roleFontSize: normalizeNodeFontSize(node.roleFontSize),
         marks: normalizeNodeMarks(node.marks),
         image: typeof node.image === "string" ? node.image : "",
         imageBackgroundColor: normalizeColorValue(node.imageBackgroundColor, "#ffffff"),
@@ -8802,18 +8848,32 @@
   }
 
   function nodeFrameMetrics(node) {
-    const nameLimit = clamp(Math.floor((node.w - 12) / 11), 3, 14);
-    const roleLimit = clamp(Math.floor((node.w - 12) / 10), 3, 14);
+    const explicitNameFontSize = normalizeNodeFontSize(node.nameFontSize);
+    const explicitRoleFontSize = normalizeNodeFontSize(node.roleFontSize);
+    const nameMeasureFontSize = explicitNameFontSize ?? NODE_NAME_FONT_SIZE_DEFAULT;
+    const roleMeasureFontSize = explicitRoleFontSize ?? NODE_ROLE_FONT_SIZE_DEFAULT;
+    const nameLimit = explicitNameFontSize === null
+      ? clamp(Math.floor((node.w - 12) / 11), 3, 14)
+      : clamp(Math.floor((node.w - 12) / Math.max(6, nameMeasureFontSize * 0.88)), 3, 24);
+    const roleLimit = explicitRoleFontSize === null
+      ? clamp(Math.floor((node.w - 12) / 10), 3, 14)
+      : clamp(Math.floor((node.w - 12) / Math.max(6, roleMeasureFontSize * 0.9)), 3, 24);
     const nameLines = wrapLabel(node.name || "人物", nameLimit, 2);
     const roleLines = wrapLabel(node.role || "肩書き", roleLimit, 4);
-    const roleFontSize = roleLines.length > 1 ? 9.5 : 11;
-    const roleLineGap = roleLines.length > 1 ? 10.5 : 0;
+    const roleFontSize = explicitRoleFontSize ?? (roleLines.length > 1 ? 9.5 : NODE_ROLE_FONT_SIZE_DEFAULT);
+    const roleLineGap = roleLines.length > 1
+      ? (explicitRoleFontSize === null ? 10.5 : roleFontSize * 1.1)
+      : 0;
     const roleBlockHeight = roleFontSize + roleLineGap * (roleLines.length - 1);
     const roleBandHeight = Math.max(21, Math.ceil(roleBlockHeight + 10));
-    const nameFontSize = nameLines.length > 1 ? 10.5 : 12.5;
-    const nameLineGap = nameLines.length > 1 ? 11 : 0;
+    const nameFontSize = explicitNameFontSize ?? (nameLines.length > 1 ? 10.5 : NODE_NAME_FONT_SIZE_DEFAULT);
+    const nameLineGap = nameLines.length > 1
+      ? (explicitNameFontSize === null ? 11 : nameFontSize * 1.08)
+      : 0;
     const nameBlockHeight = nameFontSize + nameLineGap * (nameLines.length - 1);
-    const nameBandHeight = nameLines.length > 1 ? 31 : 24;
+    const nameBandHeight = explicitNameFontSize === null
+      ? (nameLines.length > 1 ? 31 : 24)
+      : Math.max(24, Math.ceil(nameBlockHeight + 10));
     return {
       nameLines,
       roleLines,
