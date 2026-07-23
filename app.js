@@ -75,6 +75,7 @@
   const GROUP_SHAPE_IDS = new Set(GROUP_SHAPES.map(([id]) => id));
   const LINK_AVOID_PADDING = 16;
   const LINK_ROUTE_OUTER_PADDING = 80;
+  const LINK_ROUTE_MAX_AUTO_SHIFT = 120;
   const LINK_TERMINAL_STUB = 22;
   const LINK_ROUTE_CACHE_LIMIT = 1800;
   const LINK_AXIS_CACHE_LIMIT = 2400;
@@ -2626,8 +2627,9 @@
 
     const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
     const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
-    const useHorizontalTrunk = resolveLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`);
-    const nodeObstacles = fastDiagramRender ? [] : linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
+    const manualRoute = link.manualRoute === true;
+    const useHorizontalTrunk = resolvedLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`);
+    const nodeObstacles = fastDiagramRender || manualRoute ? [] : linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
     const allBranches = [];
     let trunkPath = "";
     let labelPoint;
@@ -2637,13 +2639,16 @@
 
     if (useHorizontalTrunk) {
       const estimatedYs = [...fromEndpoints, ...toEndpoints].map((endpoint) => endpoint.center.y);
-      const trunkX = chooseTrunkCoordinate(
-        "vertical",
-        (fromCenter.x + toCenter.x) / 2,
-        Math.min(...estimatedYs),
-        Math.max(...estimatedYs),
-        nodeObstacles
-      ) + normalizedLinkRouteOffsetX(link);
+      const baseTrunkX = (fromCenter.x + toCenter.x) / 2;
+      const trunkX = (manualRoute
+        ? baseTrunkX
+        : chooseTrunkCoordinate(
+          "vertical",
+          baseTrunkX,
+          Math.min(...estimatedYs),
+          Math.max(...estimatedYs),
+          nodeObstacles
+        )) + normalizedLinkRouteOffsetX(link);
       const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
         link,
         fromEndpoints,
@@ -2686,13 +2691,16 @@
       });
     } else {
       const estimatedXs = [...fromEndpoints, ...toEndpoints].map((endpoint) => endpoint.center.x);
-      const trunkY = chooseTrunkCoordinate(
-        "horizontal",
-        (fromCenter.y + toCenter.y) / 2,
-        Math.min(...estimatedXs),
-        Math.max(...estimatedXs),
-        nodeObstacles
-      ) + normalizedLinkRouteOffsetY(link);
+      const baseTrunkY = (fromCenter.y + toCenter.y) / 2;
+      const trunkY = (manualRoute
+        ? baseTrunkY
+        : chooseTrunkCoordinate(
+          "horizontal",
+          baseTrunkY,
+          Math.min(...estimatedXs),
+          Math.max(...estimatedXs),
+          nodeObstacles
+        )) + normalizedLinkRouteOffsetY(link);
       const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
         link,
         fromEndpoints,
@@ -2742,7 +2750,6 @@
     if (active) {
       appendLinkSegmentHandles(g, link, trunkPoints);
       allBranches.forEach((branch) => {
-        appendLinkSegmentHandles(g, link, branch.points || []);
         appendLinkTerminalSegmentHandle(g, link, branch.points || [], branch.terminal, branch.side, branch.endpointId);
       });
     }
@@ -2855,6 +2862,8 @@
       "data-type": "link-route",
       "data-id": link.id,
       "data-axis": axis,
+      "data-route-x": point.x,
+      "data-route-y": point.y,
       class: "link-route-handle"
     });
     handle.appendChild(createSvg("circle", {
@@ -2897,6 +2906,8 @@
       "data-type": "link-route",
       "data-id": link.id,
       "data-axis": axis,
+      "data-route-x": point.x,
+      "data-route-y": point.y,
       class: "link-route-handle link-segment-handle"
     });
     handle.appendChild(createSvg("path", {
@@ -3179,17 +3190,21 @@
 
     const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
     const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
-    const useHorizontalTrunk = resolveLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`);
-    const nodeObstacles = linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
+    const manualRoute = link.manualRoute === true;
+    const useHorizontalTrunk = resolvedLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`);
+    const nodeObstacles = manualRoute ? [] : linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
     if (useHorizontalTrunk) {
       const estimatedYs = [...fromEndpoints, ...toEndpoints].map((endpoint) => endpoint.center.y);
-      const trunkX = chooseTrunkCoordinate(
-        "vertical",
-        (fromCenter.x + toCenter.x) / 2,
-        Math.min(...estimatedYs),
-        Math.max(...estimatedYs),
-        nodeObstacles
-      ) + normalizedLinkRouteOffsetX(link);
+      const baseTrunkX = (fromCenter.x + toCenter.x) / 2;
+      const trunkX = (manualRoute
+        ? baseTrunkX
+        : chooseTrunkCoordinate(
+          "vertical",
+          baseTrunkX,
+          Math.min(...estimatedYs),
+          Math.max(...estimatedYs),
+          nodeObstacles
+        )) + normalizedLinkRouteOffsetX(link);
       const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
         link,
         fromEndpoints,
@@ -3202,13 +3217,16 @@
       return [{ x: trunkX, y: Math.min(...ys) }, { x: trunkX, y: Math.max(...ys) }];
     }
     const estimatedXs = [...fromEndpoints, ...toEndpoints].map((endpoint) => endpoint.center.x);
-    const trunkY = chooseTrunkCoordinate(
-      "horizontal",
-      (fromCenter.y + toCenter.y) / 2,
-      Math.min(...estimatedXs),
-      Math.max(...estimatedXs),
-      nodeObstacles
-    ) + normalizedLinkRouteOffsetY(link);
+    const baseTrunkY = (fromCenter.y + toCenter.y) / 2;
+    const trunkY = (manualRoute
+      ? baseTrunkY
+      : chooseTrunkCoordinate(
+        "horizontal",
+        baseTrunkY,
+        Math.min(...estimatedXs),
+        Math.max(...estimatedXs),
+        nodeObstacles
+      )) + normalizedLinkRouteOffsetY(link);
     const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
       link,
       fromEndpoints,
@@ -4254,6 +4272,8 @@
     resetLine.addEventListener("click", () => {
       link.routeOffsetX = 0;
       link.routeOffsetY = 0;
+      link.manualRoute = false;
+      link.manualRouteAxis = "";
       link.fromTerminalOffsets = {};
       link.toTerminalOffsets = {};
       commitChange();
@@ -4264,6 +4284,8 @@
       link.labelOffsetY = 0;
       link.routeOffsetX = 0;
       link.routeOffsetY = 0;
+      link.manualRoute = false;
+      link.manualRouteAxis = "";
       link.fromTerminalOffsets = {};
       link.toTerminalOffsets = {};
       commitChange();
@@ -5961,6 +5983,11 @@
     if (drag.type === "link-route") {
       const link = getLink(drag.id);
       if (!link) return;
+      if (!drag.moved) return;
+      if (drag.activateManualRoute) {
+        link.manualRoute = true;
+        link.manualRouteAxis = drag.manualRouteAxis;
+      }
       if (drag.routeMode === "free" || drag.routeMode === "x") {
         link.routeOffsetX = drag.original.routeOffsetX + dx;
       }
@@ -5971,6 +5998,15 @@
     if (drag.type === "link-terminal") {
       const link = getLink(drag.id);
       if (!link) return;
+      if (!drag.moved) return;
+      if ((link.route || "orthogonal") === "orthogonal") {
+        if (link.manualRoute !== true) {
+          link.routeOffsetX = drag.manualRouteOffsets.routeOffsetX;
+          link.routeOffsetY = drag.manualRouteOffsets.routeOffsetY;
+        }
+        link.manualRoute = true;
+        if (!normalizedManualRouteAxis(link)) link.manualRouteAxis = linkRouteAxisForDrag(link);
+      }
       const next = {
         x: drag.original.terminalOffsetX,
         y: drag.original.terminalOffsetY
@@ -6169,6 +6205,8 @@
       if (link) {
         link.routeOffsetX = drag.original.routeOffsetX;
         link.routeOffsetY = drag.original.routeOffsetY;
+        link.manualRoute = drag.original.manualRoute;
+        link.manualRouteAxis = drag.original.manualRouteAxis;
       }
     }
     if (drag?.type === "link-terminal") {
@@ -6178,6 +6216,10 @@
           x: drag.original.terminalOffsetX,
           y: drag.original.terminalOffsetY
         });
+        link.routeOffsetX = drag.original.routeOffsetX;
+        link.routeOffsetY = drag.original.routeOffsetY;
+        link.manualRoute = drag.original.manualRoute;
+        link.manualRouteAxis = drag.original.manualRouteAxis;
       }
     }
     if (drag?.type === "link-anchor") {
@@ -6622,6 +6664,17 @@
     if (!link) return false;
     const axis = typeof targetOrId === "string" ? "" : targetOrId?.axis;
     const routeMode = axis === "horizontal" ? "y" : axis === "vertical" ? "x" : linkRouteDragMode(link);
+    const activateManualRoute = (link.route || "orthogonal") === "orthogonal";
+    const currentOffsets = {
+      routeOffsetX: normalizedLinkRouteOffsetX(link),
+      routeOffsetY: normalizedLinkRouteOffsetY(link)
+    };
+    const calibratedOffsets = activateManualRoute && link.manualRoute !== true
+      ? calibratedLinkRouteOffsets(link, routeMode, {
+        x: finiteRouteCoordinate(targetOrId?.routeX, point.x),
+        y: finiteRouteCoordinate(targetOrId?.routeY, point.y)
+      }, currentOffsets)
+      : currentOffsets;
     selected = { type: "link", id: link.id };
     mode = "select";
     pendingConnection = null;
@@ -6633,14 +6686,91 @@
       start: point,
       startScreen: screen,
       routeMode,
+      activateManualRoute,
+      manualRouteAxis: activateManualRoute ? linkRouteAxisForDrag(link) : "",
       original: {
-        routeOffsetX: normalizedLinkRouteOffsetX(link),
-        routeOffsetY: normalizedLinkRouteOffsetY(link)
+        routeOffsetX: calibratedOffsets.routeOffsetX,
+        routeOffsetY: calibratedOffsets.routeOffsetY,
+        manualRoute: link.manualRoute === true,
+        manualRouteAxis: normalizedManualRouteAxis(link)
       },
       moved: false
     };
     renderEditSelection({ deferDiagram: true });
     return true;
+  }
+
+  function finiteRouteCoordinate(value, fallback) {
+    if (value === "" || value === null || value === undefined) return fallback;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
+  function calibratedLinkRouteOffsets(link, routeMode, routePoint, currentOffsets) {
+    const baseline = linkRouteOffsetBaseline(link);
+    const next = { ...currentOffsets };
+    if (routeMode === "free" || routeMode === "x") {
+      next.routeOffsetX = normalizeFreeOffset(routePoint.x - baseline.x);
+    }
+    if (routeMode === "free" || routeMode === "y") {
+      next.routeOffsetY = normalizeFreeOffset(routePoint.y - baseline.y);
+    }
+    return next;
+  }
+
+  function currentLinkRouteCalibrationOffsets(link) {
+    const currentOffsets = {
+      routeOffsetX: normalizedLinkRouteOffsetX(link),
+      routeOffsetY: normalizedLinkRouteOffsetY(link)
+    };
+    const polyline = representativeLinkLabelPolyline(link);
+    if (polyline.length < 2) return currentOffsets;
+    return calibratedLinkRouteOffsets(
+      link,
+      "free",
+      pointOnPolyline(polyline, 0.5),
+      currentOffsets
+    );
+  }
+
+  function linkRouteOffsetBaseline(link) {
+    const fromEndpoints = getLinkEndpointEntries(link, "from");
+    const toEndpoints = getLinkEndpointEntries(link, "to");
+    if (!fromEndpoints.length || !toEndpoints.length) return { x: 0, y: 0 };
+    if (fromEndpoints.length === 1 && toEndpoints.length === 1) {
+      const fromEndpoint = fromEndpoints[0];
+      const toEndpoint = toEndpoints[0];
+      const start = attachmentPoint(fromEndpoint.item, fromEndpoint.id, link, "from", toEndpoint.center);
+      const end = attachmentPoint(toEndpoint.item, toEndpoint.id, link, "to", fromEndpoint.center);
+      const startTerminal = linkTerminalStubPoint(link, "from", fromEndpoint.id, fromEndpoint.item, start);
+      const endTerminal = linkTerminalStubPoint(link, "to", toEndpoint.id, toEndpoint.item, end);
+      return midpoint(startTerminal?.point || start, endTerminal?.point || end);
+    }
+    const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
+    const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
+    return midpoint(fromCenter, toCenter);
+  }
+
+  function linkRouteAxisForDrag(link) {
+    const fromEndpoints = getLinkEndpointEntries(link, "from");
+    const toEndpoints = getLinkEndpointEntries(link, "to");
+    if (!fromEndpoints.length || !toEndpoints.length) return "";
+    if (fromEndpoints.length === 1 && toEndpoints.length === 1) {
+      const fromEndpoint = fromEndpoints[0];
+      const toEndpoint = toEndpoints[0];
+      const start = attachmentPoint(fromEndpoint.item, fromEndpoint.id, link, "from", toEndpoint.center);
+      const end = attachmentPoint(toEndpoint.item, toEndpoint.id, link, "to", fromEndpoint.center);
+      const startTerminal = linkTerminalStubPoint(link, "from", fromEndpoint.id, fromEndpoint.item, start);
+      const endTerminal = linkTerminalStubPoint(link, "to", toEndpoint.id, toEndpoint.item, end);
+      return startTerminal?.axis
+        || endTerminal?.axis
+        || (resolveLinkFlowAxis(link, startTerminal?.point || start, endTerminal?.point || end, "single") ? "horizontal" : "vertical");
+    }
+    const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
+    const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
+    return resolveLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`)
+      ? "horizontal"
+      : "vertical";
   }
 
   function startLinkAnchorDrag(event, target, point, screen) {
@@ -6678,6 +6808,12 @@
     const axis = target.axis === "vertical" ? "vertical" : target.axis === "horizontal" ? "horizontal" : "";
     if (!link || !side || !endpointId || !axis) return false;
     const offset = getLinkTerminalOffset(link, side, endpointId);
+    const manualRouteOffsets = link.manualRoute === true
+      ? {
+        routeOffsetX: normalizedLinkRouteOffsetX(link),
+        routeOffsetY: normalizedLinkRouteOffsetY(link)
+      }
+      : currentLinkRouteCalibrationOffsets(link);
     selected = { type: "link", id: link.id };
     mode = "select";
     pendingConnection = null;
@@ -6691,9 +6827,14 @@
       side,
       endpointId,
       axis,
+      manualRouteOffsets,
       original: {
         terminalOffsetX: offset.x,
-        terminalOffsetY: offset.y
+        terminalOffsetY: offset.y,
+        routeOffsetX: normalizedLinkRouteOffsetX(link),
+        routeOffsetY: normalizedLinkRouteOffsetY(link),
+        manualRoute: link.manualRoute === true,
+        manualRouteAxis: normalizedManualRouteAxis(link)
       },
       moved: false
     };
@@ -6813,6 +6954,8 @@
       labelBorderWidth: 1,
       routeOffsetX: 0,
       routeOffsetY: 0,
+      manualRoute: false,
+      manualRouteAxis: "",
       width: 1.5
     };
     state.links.push(link);
@@ -8245,6 +8388,17 @@
   function normalizeLink(link) {
     const fromIds = normalizeEndpointIds(Array.isArray(link.fromIds) ? link.fromIds : [link.from]);
     const toIds = normalizeEndpointIds(Array.isArray(link.toIds) ? link.toIds : [link.to]);
+    const route = ["straight", "orthogonal", "curve"].includes(link.route) ? link.route : "orthogonal";
+    const routeOffsetX = normalizeFreeOffset(link.routeOffsetX);
+    const routeOffsetY = normalizeFreeOffset(link.routeOffsetY);
+    const fromTerminalOffsets = normalizeTerminalOffsetMap(link.fromTerminalOffsets, fromIds);
+    const toTerminalOffsets = normalizeTerminalOffsetMap(link.toTerminalOffsets, toIds);
+    const hasLegacyManualRoute = route === "orthogonal" && (
+      Math.abs(routeOffsetX) > 0.001
+      || Math.abs(routeOffsetY) > 0.001
+      || Object.keys(fromTerminalOffsets).length > 0
+      || Object.keys(toTerminalOffsets).length > 0
+    );
     const normalized = {
       id: link.id || uid("link"),
       from: fromIds[0] || link.from || "",
@@ -8253,11 +8407,11 @@
       toIds,
       fromAnchors: normalizeAnchorMap(link.fromAnchors, fromIds),
       toAnchors: normalizeAnchorMap(link.toAnchors, toIds),
-      fromTerminalOffsets: normalizeTerminalOffsetMap(link.fromTerminalOffsets, fromIds),
-      toTerminalOffsets: normalizeTerminalOffsetMap(link.toTerminalOffsets, toIds),
+      fromTerminalOffsets,
+      toTerminalOffsets,
       label: String(link.label || ""),
       type: ["line", "arrow", "bidirectional", "dashed"].includes(link.type) ? link.type : "line",
-      route: ["straight", "orthogonal", "curve"].includes(link.route) ? link.route : "orthogonal",
+      route,
       color: link.color || "#202329",
       labelColor: typeof link.labelColor === "string" ? link.labelColor : "",
       labelPosition: clamp(Number(link.labelPosition ?? 0.5), 0, 1),
@@ -8266,8 +8420,16 @@
       labelBackgroundColor: normalizeLinkLabelBackgroundColor(link.labelBackgroundColor),
       labelBorderColor: normalizeLinkLabelBorderColor(link.labelBorderColor),
       labelBorderWidth: normalizeLinkLabelBorderWidth(link.labelBorderWidth),
-      routeOffsetX: normalizeFreeOffset(link.routeOffsetX),
-      routeOffsetY: normalizeFreeOffset(link.routeOffsetY),
+      routeOffsetX,
+      routeOffsetY,
+      manualRoute: link.manualRoute === true || hasLegacyManualRoute,
+      manualRouteAxis: link.manualRouteAxis === "horizontal" || link.manualRouteAxis === "vertical"
+        ? link.manualRouteAxis
+        : Math.abs(routeOffsetX) > Math.abs(routeOffsetY)
+          ? "horizontal"
+          : Math.abs(routeOffsetY) > 0.001
+            ? "vertical"
+            : "",
       width: clamp(Number(link.width) || 1.5, 0.5, 9)
     };
     syncLinkEndpoints(normalized);
@@ -8642,7 +8804,9 @@
         side: current.getAttribute?.("data-side") || "",
         endpointId: current.getAttribute?.("data-endpoint-id") || "",
         axis: current.getAttribute?.("data-axis") || "",
-        anchor: current.getAttribute?.("data-anchor") || ""
+        anchor: current.getAttribute?.("data-anchor") || "",
+        routeX: current.getAttribute?.("data-route-x") || "",
+        routeY: current.getAttribute?.("data-route-y") || ""
       };
       current = current.parentNode;
     }
@@ -8656,7 +8820,9 @@
         side: current.getAttribute?.("data-side") || "",
         endpointId: current.getAttribute?.("data-endpoint-id") || "",
         axis: current.getAttribute?.("data-axis") || "",
-        anchor: current.getAttribute?.("data-anchor") || ""
+        anchor: current.getAttribute?.("data-anchor") || "",
+        routeX: current.getAttribute?.("data-route-x") || "",
+        routeY: current.getAttribute?.("data-route-y") || ""
       };
       current = current.parentNode;
     }
@@ -9137,9 +9303,11 @@
     const routeEnd = endTerminal?.point || end;
     const preferredAxis = startTerminal?.axis
       || endTerminal?.axis
-      || (resolveLinkFlowAxis(link, routeStart, routeEnd, "single") ? "horizontal" : "vertical");
-    const hasManualOffset = Math.abs(normalizedLinkRouteOffsetX(link)) > 0.001 || Math.abs(normalizedLinkRouteOffsetY(link)) > 0.001;
-    const routed = hasManualOffset
+      || (resolvedLinkFlowAxis(link, routeStart, routeEnd, "single") ? "horizontal" : "vertical");
+    const hasManualRoute = link.manualRoute === true
+      || Math.abs(normalizedLinkRouteOffsetX(link)) > 0.001
+      || Math.abs(normalizedLinkRouteOffsetY(link)) > 0.001;
+    const routed = hasManualRoute
       ? manualOrthogonalRoutePoints(link, routeStart, routeEnd, preferredAxis)
       : fastDiagramRender
         ? routeCandidatePoints(routeStart, routeEnd, preferredAxis)
@@ -9309,6 +9477,18 @@
     };
   }
 
+  function normalizedManualRouteAxis(link) {
+    return link?.manualRouteAxis === "horizontal" || link?.manualRouteAxis === "vertical"
+      ? link.manualRouteAxis
+      : "";
+  }
+
+  function resolvedLinkFlowAxis(link, from, to, scope) {
+    const manualAxis = link?.manualRoute === true ? normalizedManualRouteAxis(link) : "";
+    if (manualAxis) return manualAxis === "horizontal";
+    return resolveLinkFlowAxis(link, from, to, scope);
+  }
+
   function resolveLinkFlowAxis(link, from, to, scope) {
     const horizontalDistance = Math.abs(to.x - from.x);
     const verticalDistance = Math.abs(to.y - from.y);
@@ -9352,7 +9532,9 @@
   }
 
   function chooseTrunkCoordinate(axis, base, rangeStart, rangeEnd, obstacles) {
-    const candidates = trunkCoordinateCandidates(axis, base, obstacles);
+    const candidates = trunkCoordinateCandidates(axis, base, obstacles)
+      .filter((candidate) => Math.abs(candidate - base) <= LINK_ROUTE_MAX_AUTO_SHIFT);
+    if (!candidates.some((candidate) => sameCoord(candidate, base))) candidates.push(base);
     let best = base;
     let bestScore = Infinity;
     candidates.forEach((candidate) => {
@@ -9398,19 +9580,21 @@
       linkRouteCache.set(cacheKey, cached);
       return clonePolyline(cached);
     }
-    const direct = routeCandidatePoints(start, end, preferredAxis);
-    if (polylineIsClear(direct, scopedObstacles)) {
-      rememberLinkRoute(cacheKey, direct);
-      return direct;
-    }
-    const alternate = routeCandidatePoints(start, end, preferredAxis === "horizontal" ? "vertical" : "horizontal");
-    if (polylineIsClear(alternate, scopedObstacles)) {
-      rememberLinkRoute(cacheKey, alternate);
-      return alternate;
-    }
-
-    const gridRoute = findGridRoute(start, end, preferredAxis, scopedObstacles);
-    const result = gridRoute || direct;
+    const alternateAxis = preferredAxis === "horizontal" ? "vertical" : "horizontal";
+    const candidates = [
+      routeCandidatePoints(start, end, preferredAxis),
+      centeredRouteCandidatePoints(start, end, preferredAxis),
+      routeCandidatePoints(start, end, alternateAxis),
+      centeredRouteCandidatePoints(start, end, alternateAxis)
+    ].map(compactPolyline);
+    const clear = candidates.find((candidate) => polylineIsClear(candidate, scopedObstacles));
+    const result = clear || candidates.reduce((best, candidate) => {
+      const hits = candidate.reduce((count, point, index) => (
+        index === 0 ? count : count + segmentObstacleCount(candidate[index - 1], point, scopedObstacles)
+      ), 0);
+      const score = hits * 100000 + polylineLength(candidate) + Math.max(0, candidate.length - 2) * 8;
+      return !best || score < best.score ? { points: candidate, score } : best;
+    }, null)?.points || candidates[0];
     rememberLinkRoute(cacheKey, result);
     return result;
   }
@@ -9465,6 +9649,15 @@
       ? { x: end.x, y: start.y }
       : { x: start.x, y: end.y };
     return [start, elbow, end];
+  }
+
+  function centeredRouteCandidatePoints(start, end, firstAxis) {
+    if (firstAxis === "horizontal") {
+      const x = (start.x + end.x) / 2;
+      return [start, { x, y: start.y }, { x, y: end.y }, end];
+    }
+    const y = (start.y + end.y) / 2;
+    return [start, { x: start.x, y }, { x: end.x, y }, end];
   }
 
   function findGridRoute(start, end, preferredAxis, obstacles) {
@@ -9864,19 +10057,23 @@
 
     const fromCenter = averagePoint(fromEndpoints.map((endpoint) => endpoint.center));
     const toCenter = averagePoint(toEndpoints.map((endpoint) => endpoint.center));
-    const useHorizontalTrunk = resolveLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`);
-    const nodeObstacles = linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
+    const manualRoute = link.manualRoute === true;
+    const useHorizontalTrunk = resolvedLinkFlowAxis(link, fromCenter, toCenter, `multi:${fromEndpoints.length}:${toEndpoints.length}`);
+    const nodeObstacles = manualRoute ? [] : linkConnectionObstacles([...fromEndpoints, ...toEndpoints]);
     const polylines = [];
 
     if (useHorizontalTrunk) {
       const estimatedYs = [...fromEndpoints, ...toEndpoints].map((endpoint) => endpoint.center.y);
-      const trunkX = chooseTrunkCoordinate(
-        "vertical",
-        (fromCenter.x + toCenter.x) / 2,
-        Math.min(...estimatedYs),
-        Math.max(...estimatedYs),
-        nodeObstacles
-      ) + normalizedLinkRouteOffsetX(link);
+      const baseTrunkX = (fromCenter.x + toCenter.x) / 2;
+      const trunkX = (manualRoute
+        ? baseTrunkX
+        : chooseTrunkCoordinate(
+          "vertical",
+          baseTrunkX,
+          Math.min(...estimatedYs),
+          Math.max(...estimatedYs),
+          nodeObstacles
+        )) + normalizedLinkRouteOffsetX(link);
       const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
         link,
         fromEndpoints,
@@ -9897,13 +10094,16 @@
     }
 
     const estimatedXs = [...fromEndpoints, ...toEndpoints].map((endpoint) => endpoint.center.x);
-    const trunkY = chooseTrunkCoordinate(
-      "horizontal",
-      (fromCenter.y + toCenter.y) / 2,
-      Math.min(...estimatedXs),
-      Math.max(...estimatedXs),
-      nodeObstacles
-    ) + normalizedLinkRouteOffsetY(link);
+    const baseTrunkY = (fromCenter.y + toCenter.y) / 2;
+    const trunkY = (manualRoute
+      ? baseTrunkY
+      : chooseTrunkCoordinate(
+        "horizontal",
+        baseTrunkY,
+        Math.min(...estimatedXs),
+        Math.max(...estimatedXs),
+        nodeObstacles
+      )) + normalizedLinkRouteOffsetY(link);
     const { sourceBranches, targetBranches } = resolveMultiLinkBranches(
       link,
       fromEndpoints,
