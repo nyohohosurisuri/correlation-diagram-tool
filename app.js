@@ -314,6 +314,7 @@
           h: NODE_DEFAULT_HEIGHT,
           color: "#f2b84b",
           gradient: defaultGradient("#f2b84b"),
+          roleBackgroundOpacity: 1,
           marks: [],
           image: "",
           imageScale: 1,
@@ -331,6 +332,7 @@
           h: NODE_DEFAULT_HEIGHT,
           color: "#61a875",
           gradient: defaultGradient("#61a875"),
+          roleBackgroundOpacity: 1,
           marks: [],
           image: "",
           imageScale: 1,
@@ -348,6 +350,7 @@
           h: NODE_DEFAULT_HEIGHT,
           color: "#e8795f",
           gradient: defaultGradient("#e8795f"),
+          roleBackgroundOpacity: 1,
           marks: [],
           image: "",
           imageScale: 1,
@@ -365,6 +368,7 @@
           h: NODE_DEFAULT_HEIGHT,
           color: "#4c8fc1",
           gradient: defaultGradient("#4c8fc1"),
+          roleBackgroundOpacity: 1,
           marks: [],
           image: "",
           imageScale: 1,
@@ -630,6 +634,7 @@
       h: NODE_DEFAULT_HEIGHT,
       color,
       gradient: defaultGradient(color),
+      roleBackgroundOpacity: 1,
       marks: [],
       image: "",
       imageBackgroundColor: "#ffffff",
@@ -1865,7 +1870,8 @@
 
     g.appendChild(createSvg("path", {
       d: roundedTopPath(node.x, node.y, node.w, roleBandHeight, corner),
-      fill: objectGradientFill(node, "node")
+      fill: objectGradientFill(node, "node"),
+      "fill-opacity": normalizeNodeRoleBackgroundOpacity(node.roleBackgroundOpacity)
     }));
 
     g.appendChild(createSvg("path", {
@@ -2032,6 +2038,12 @@
     if (value === undefined || value === null || value === "") return null;
     const size = Number(value);
     return Number.isFinite(size) ? clamp(size, NODE_LABEL_FONT_SIZE_MIN, NODE_LABEL_FONT_SIZE_MAX) : null;
+  }
+
+  function normalizeNodeRoleBackgroundOpacity(value) {
+    if (value === undefined || value === null || value === "") return 1;
+    const opacity = Number(value);
+    return Number.isFinite(opacity) ? clamp(opacity, 0, 1) : 1;
   }
 
   function renderNodeMarkBadge(mark, x, y, size) {
@@ -2954,6 +2966,7 @@
         height: metrics.height,
         rx: 4,
         fill: labelBackgroundColor || "transparent",
+        "fill-opacity": normalizeLinkLabelBackgroundOpacity(link.labelBackgroundOpacity),
         stroke: labelBorderColor || "transparent",
         "stroke-width": labelBorderColor ? normalizeLinkLabelBorderWidth(link.labelBorderWidth) : 0,
         "pointer-events": "all"
@@ -4126,6 +4139,17 @@
         (value) => setNodeLabelFontSize(node, "roleFontSize", value),
         0.5
       )),
+      field("肩書き背景透明度", rangeWithValue(
+        Math.round(normalizeNodeRoleBackgroundOpacity(node.roleBackgroundOpacity) * 100),
+        0,
+        100,
+        (value) => {
+          node.roleBackgroundOpacity = clamp(value / 100, 0, 1);
+          scheduleChange();
+        },
+        1,
+        "%"
+      )),
       field("名前文字色", swatches(node.nameTextColor || "#ffffff", (value) => {
         node.nameTextColor = value;
         scheduleChange();
@@ -4404,6 +4428,17 @@
       link.labelBackgroundColor = value || "transparent";
       scheduleChange();
     }, ["#ffffff", "#f9faf7", "#eef4ef", "#fff2ef", ...PALETTE])));
+    form.appendChild(field("関係名背景透明度", rangeWithValue(
+      Math.round(normalizeLinkLabelBackgroundOpacity(link.labelBackgroundOpacity) * 100),
+      0,
+      100,
+      (value) => {
+        link.labelBackgroundOpacity = clamp(value / 100, 0, 1);
+        scheduleChange();
+      },
+      1,
+      "%"
+    )));
     form.appendChild(field("関係名枠線", optionalSwatches(linkLabelPaintColor(normalizeLinkLabelBorderColor(link.labelBorderColor)), (value) => {
       link.labelBorderColor = value || "transparent";
       scheduleChange();
@@ -7116,6 +7151,7 @@
       labelOffsetX: 0,
       labelOffsetY: 0,
       labelBackgroundColor: LINK_LABEL_DEFAULT_BACKGROUND,
+      labelBackgroundOpacity: 1,
       labelBorderColor: LINK_LABEL_DEFAULT_BORDER,
       labelBorderWidth: 1,
       routeOffsetX: 0,
@@ -8402,6 +8438,7 @@
         roleOutlineColor: normalizeColorValue(node.roleOutlineColor, "#202329"),
         roleOutlineWidth: normalizeNodeOutlineWidth(node.roleOutlineWidth),
         roleFontSize: normalizeNodeFontSize(node.roleFontSize),
+        roleBackgroundOpacity: normalizeNodeRoleBackgroundOpacity(node.roleBackgroundOpacity),
         marks: normalizeNodeMarks(node.marks),
         image: typeof node.image === "string" ? node.image : "",
         imageBackgroundColor: normalizeColorValue(node.imageBackgroundColor, "#ffffff"),
@@ -8586,6 +8623,7 @@
       labelOffsetX: normalizeFreeOffset(link.labelOffsetX),
       labelOffsetY: normalizeFreeOffset(link.labelOffsetY),
       labelBackgroundColor: normalizeLinkLabelBackgroundColor(link.labelBackgroundColor),
+      labelBackgroundOpacity: normalizeLinkLabelBackgroundOpacity(link.labelBackgroundOpacity),
       labelBorderColor: normalizeLinkLabelBorderColor(link.labelBorderColor),
       labelBorderWidth: normalizeLinkLabelBorderWidth(link.labelBorderWidth),
       routeOffsetX,
@@ -8612,6 +8650,12 @@
   function normalizeLinkLabelBackgroundColor(value) {
     if (value === "transparent" || value === "none") return "transparent";
     return typeof value === "string" && value ? value : LINK_LABEL_DEFAULT_BACKGROUND;
+  }
+
+  function normalizeLinkLabelBackgroundOpacity(value) {
+    if (value === undefined || value === null || value === "") return 1;
+    const opacity = Number(value);
+    return Number.isFinite(opacity) ? clamp(opacity, 0, 1) : 1;
   }
 
   function normalizeLinkLabelBorderColor(value) {
